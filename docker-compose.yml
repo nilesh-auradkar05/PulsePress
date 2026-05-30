@@ -1,0 +1,20 @@
+# Local walking-skeleton stack (Sprint 1): API only.
+# Postgres/Redis arrive in Sprint 2; the worker wires to them in Sprint 4.
+services:
+  api:
+    build:
+      context: ./apps/api
+    ports:
+      - "8000:8000"
+    environment:
+      PULSEPRESS_ENVIRONMENT: local
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
