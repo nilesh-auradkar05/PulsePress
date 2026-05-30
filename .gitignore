@@ -216,3 +216,21 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- PulsePress: agent runtime (iii-sdk / agentmemory), not part of the project ---
+# The frontend keeps its OWN package.json under apps/web; these root-anchored rules
+# only ignore the harness runtime at the repo root.
+/node_modules/
+/package.json
+/package-lock.json
+/data/
+
+# Claude Code: keep settings.json + commands tracked; ignore per-user local overrides.
+.claude/settings.local.json
+
+# --- PulsePress: import scratch (already merged into docs/), kept locally only ---
+/old_files/
+/original_design_html/
+/pulsepress_revised_spec_pack_v1_3/
+/MANIFEST.txt
+/Substack-style Page Design.zip
