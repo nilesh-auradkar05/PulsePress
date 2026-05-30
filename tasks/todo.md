@@ -11,6 +11,36 @@ Active sprint: **Sprint 1 — Foundation + walking-skeleton deploy**
 - [x] S1-T02 — FastAPI `/healthz`
 - [x] S1-T03 — Terraform foundation (network, ECR, ALB, ECS, log group) — build-only
 - [x] S1-CI — Minimal GitHub Actions CI (verification family + Sprint 0 guardrail scripts)
+- [x] S1-web-design — Port user-provided frontend design into `apps/web` (Next.js, on-spec)
+
+---
+
+## S1-web-design — Port the developer-provided frontend design into apps/web
+
+Trace:
+- User-directed (this session). Stays on the approved stack (SPEC §4, CLAUDE.md §10) — chosen
+  option "Port design into Next.js" over a wholesale Vite swap.
+- Note: ahead of the sprint plan (real UI is Sprint 5/8). Kept to a like-for-like design port of
+  the skeleton landing page — no backend wiring, no new product routes beyond home/login/register.
+
+Source reviewed: `frontend/` (Vite + React 18 SPA, Figma Make export). Sub-agent review confirmed
+the 3 screens (Home/Login/Register) + Layout use ONLY lucide-react + react-router + standard
+Tailwind utilities — no shadcn `ui/*` components and no shadcn theme tokens. So the port needs no
+shadcn library or theme reconciliation.
+
+Port decisions:
+- Keep Next.js 15 App Router + Tailwind v3 (apps/web). Add `lucide-react`. Inter via `next/font`
+  (self-hosted; drops the Google Fonts CDN dependency the review flagged).
+- react-router → Next: `<Link to>`→`next/link href`, `useNavigate`→`useRouter().push`,
+  `Outlet`+`useOutletContext` → a small client `AuthProvider` context + `SiteShell` chrome.
+- Fake auth (`onLoginSuccess`) preserved as a placeholder; real Cognito PKCE is a later sprint.
+- Brand string "Nexus" → "PulsePress" for product consistency (flagged to user; easy to revert).
+- `frontend/` kept on disk as a design reference (gitignored, not committed as a parallel app).
+
+Verification:
+- `pnpm --dir apps/web lint && pnpm --dir apps/web typecheck && pnpm --dir apps/web build`
+
+Result: **passed** — see Evidence log (web design port).
 
 ---
 
@@ -163,3 +193,14 @@ validate_openapi.py docs/openapi.yaml          -> OpenAPI 3.1.0, 21 paths
 check_docs_links.py docs CLAUDE.md README.md   -> all links resolve, 39 files
 test_agent_hooks.py                            -> 18/18 guard cases pass
 ```
+
+### apps/web — design port (S1-web-design)
+```
+pnpm install        -> + lucide-react 0.460.0
+pnpm lint           -> ✔ No ESLint warnings or errors
+pnpm typecheck      -> tsc --noEmit, no errors
+pnpm build          -> ✓ Compiled; routes: / , /login , /register (+ /_not-found), all static
+```
+Ported from `frontend/` (Vite SPA, kept on disk as design reference, gitignored): Home→`app/page.tsx`,
+Login→`app/login/page.tsx`, Register→`app/register/page.tsx`, Layout→`app/components/SiteShell.tsx`,
+outlet context→`app/components/AuthProvider.tsx`. lucide-react + Inter (`next/font`); brand "Nexus"→"PulsePress".

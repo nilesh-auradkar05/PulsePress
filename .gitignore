@@ -234,6 +234,10 @@ __marimo__/
 /pulsepress_revised_spec_pack_v1_3/
 /MANIFEST.txt
 /Substack-style Page Design.zip
+/Substack-style Page Design/
+# Developer-provided frontend design (Vite/Figma export). Kept on disk as a
+# design reference only; its design was ported into apps/web (Next.js).
+/frontend/
 
 # --- PulsePress: frontend build/install outputs (apps/web) ---
 apps/web/node_modules/
