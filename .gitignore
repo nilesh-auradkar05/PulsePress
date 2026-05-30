@@ -216,3 +216,48 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- PulsePress: agent runtime (iii-sdk / agentmemory), not part of the project ---
+# The frontend keeps its OWN package.json under apps/web; these root-anchored rules
+# only ignore the harness runtime at the repo root.
+/node_modules/
+/package.json
+/package-lock.json
+/data/
+
+# Claude Code: keep settings.json + commands tracked; ignore per-user local overrides.
+.claude/settings.local.json
+
+# --- PulsePress: import scratch (already merged into docs/), kept locally only ---
+/old_files/
+/original_design_html/
+/pulsepress_revised_spec_pack_v1_3/
+/MANIFEST.txt
+/Substack-style Page Design.zip
+/Substack-style Page Design/
+# Developer-provided frontend design (Vite/Figma export). Kept on disk as a
+# design reference only; its design was ported into apps/web (Next.js).
+/frontend/
+
+# --- PulsePress: frontend build/install outputs (apps/web) ---
+apps/web/node_modules/
+apps/web/.next/
+apps/web/out/
+apps/web/next-env.d.ts
+apps/web/*.tsbuildinfo
+
+# --- PulsePress: Terraform (keep .terraform.lock.hcl + *.tfvars.example tracked) ---
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
