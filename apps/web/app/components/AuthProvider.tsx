@@ -1,30 +1,61 @@
 "use client";
 
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+
+import { api, clearToken, getToken, setToken, type User } from "../lib/api";
 
 type AuthState = {
+  user: User | null;
   isLoggedIn: boolean;
-  login: () => void;
+  loading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  register: (email: string, displayName: string, password: string) => Promise<void>;
   logout: () => void;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
 
 /**
- * Placeholder auth state for the walking-skeleton UI. Mirrors the design's
- * fake `onLoginSuccess` flow; the real Cognito Authorization-Code + PKCE flow
- * replaces this in a later sprint (CLAUDE.md §10, SPEC §14).
+ * Auth state backed by the PulsePress API. In local dev the API exposes a
+ * dev-auth shortcut (`/local/auth/*`); the real Cognito PKCE flow slots in here
+ * later. The token is kept in localStorage and used as a Bearer credential.
  */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!getToken()) {
+      setLoading(false);
+      return;
+    }
+    api
+      .me()
+      .then(setUser)
+      .catch(() => clearToken())
+      .finally(() => setLoading(false));
+  }, []);
+
+  const login = useCallback(async (email: string) => {
+    const res = await api.login(email);
+    setToken(res.access_token);
+    setUser(res.user);
+  }, []);
+
+  const register = useCallback(async (email: string, displayName: string) => {
+    const res = await api.register(email, displayName);
+    setToken(res.access_token);
+    setUser(res.user);
+  }, []);
+
+  const logout = useCallback(() => {
+    clearToken();
+    setUser(null);
+  }, []);
 
   const value = useMemo<AuthState>(
-    () => ({
-      isLoggedIn,
-      login: () => setIsLoggedIn(true),
-      logout: () => setIsLoggedIn(false),
-    }),
-    [isLoggedIn],
+    () => ({ user, isLoggedIn: user !== null, loading, login, register, logout }),
+    [user, loading, login, register, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

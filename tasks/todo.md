@@ -1,206 +1,142 @@
 # PulsePress Task Board
 
-Active sprint: **Sprint 1 — Foundation + walking-skeleton deploy**
+Active sprint: **Sprint 2 — Schema + Auth (+ local integration test + README)**
 
-> Sprint 0 (control plane + design pack) is complete and committed on branch
-> `sprint-0-control-plane`. Sprint 1 runs on `sprint-1-foundation`.
+> Sprint 0 + Sprint 1 complete and merged to `main`. Sprint 2 runs on `sprint-2-schema-auth`.
 
 ## Current tasks
 
-- [x] S1-T01 — Create monorepo skeleton (`apps/api`, `apps/worker`, `apps/web`, `infra/terraform`)
-- [x] S1-T02 — FastAPI `/healthz`
-- [x] S1-T03 — Terraform foundation (network, ECR, ALB, ECS, log group) — build-only
-- [x] S1-CI — Minimal GitHub Actions CI (verification family + Sprint 0 guardrail scripts)
-- [x] S1-web-design — Port user-provided frontend design into `apps/web` (Next.js, on-spec)
+- [x] S2-T01 — Alembic 17-table base schema (models, constraints, immutability, tests)
+- [x] S2-T02 — Cognito JWT validation + local-dev auth router + `/me` (+ correlation middleware)
+- [x] S2-T03 — RDS + ElastiCache + Cognito Terraform (build-only)
+- [x] S2-T04 — Local dev stack + DB schema steps + frontend functional test (user-added)
+- [x] S2-T05 — README.md rewrite, 5-section structure (user-added)
 
 ---
 
-## S1-web-design — Port the developer-provided frontend design into apps/web
+## S2-T01 — Alembic 17-table base schema
 
-Trace:
-- User-directed (this session). Stays on the approved stack (SPEC §4, CLAUDE.md §10) — chosen
-  option "Port design into Next.js" over a wholesale Vite swap.
-- Note: ahead of the sprint plan (real UI is Sprint 5/8). Kept to a like-for-like design port of
-  the skeleton landing page — no backend wiring, no new product routes beyond home/login/register.
+Trace: architecture §5/§6, SPEC §6 (17 tables), CLAUDE.md §6/§8, test-plan §4; ADR-0012.
 
-Source reviewed: `frontend/` (Vite + React 18 SPA, Figma Make export). Sub-agent review confirmed
-the 3 screens (Home/Login/Register) + Layout use ONLY lucide-react + react-router + standard
-Tailwind utilities — no shadcn `ui/*` components and no shadcn theme tokens. So the port needs no
-shadcn library or theme reconciliation.
+Scope:
+- SQLAlchemy 2.x typed models for all 17 Phase-1 tables, UUID v4 PKs, FK indexes, audit timestamps.
+- Constraints: users.cognito_sub UQ; publications.handle UQ; idempotency_keys UQ(user_id,key);
+  subscriptions partial-unique active; publication_daily_stats UQ(publication_id,stat_date);
+  ledger_transactions UQ(source_type,source_id) + 2 CHECKs; ledger_entries UQ(tx,account);
+  user_feed_events index(user_id,created_at).
+- Immutability guard (SQLAlchemy event) on ledger_transactions/ledger_entries/post_versions/reconciliation_log.
+- Alembic env + 0001_initial migration (all tables/constraints/indexes).
 
-Port decisions:
-- Keep Next.js 15 App Router + Tailwind v3 (apps/web). Add `lucide-react`. Inter via `next/font`
-  (self-hosted; drops the Google Fonts CDN dependency the review flagged).
-- react-router → Next: `<Link to>`→`next/link href`, `useNavigate`→`useRouter().push`,
-  `Outlet`+`useOutletContext` → a small client `AuthProvider` context + `SiteShell` chrome.
-- Fake auth (`onLoginSuccess`) preserved as a placeholder; real Cognito PKCE is a later sprint.
-- Brand string "Nexus" → "PulsePress" for product consistency (flagged to user; easy to revert).
-- `frontend/` kept on disk as a design reference (gitignored, not committed as a parallel app).
+Tests: migration upgrade↓downgrade; constraint rejections; immutable update/delete raises.
 
-Verification:
-- `pnpm --dir apps/web lint && pnpm --dir apps/web typecheck && pnpm --dir apps/web build`
+Verification: `cd apps/api && uv run ruff check && uv run pyright && uv run pytest` (against test Postgres).
 
-Result: **passed** — see Evidence log (web design port).
+Result: **passed** (see Evidence log)
 
 ---
 
-## S1-T01 — Create monorepo skeleton
+## S2-T02 — Cognito JWT validation + local-dev auth + `/me`
 
-Trace:
-- SPEC: §15 (repository structure), §4 (approved stack)
-- Sprint plan: docs/sprint-plan.md S1-T01
-- Architecture/Data model: n/a (skeleton only)
+Trace: OpenAPI `/me` + `bearerAuth`, SPEC §14, CLAUDE.md §15; ADR-0002.
 
-Assumptions:
-- Skeletons are minimal but real: each app passes its own lint/typecheck/build, no feature logic.
-- Only the subpackages `/healthz` needs are created under `apps/api/app/`; the rest of the SPEC §15
-  api tree (`db,domain,models,services,auth,integrations`) is added in the sprint that needs each.
-- Python 3.12 + uv; frontend pnpm + Next.js (App Router) + TS + Tailwind.
+Scope:
+- Prod verifier (RS256 via cached JWKS; issuer/audience/exp/token_use).
+- Local verifier+minter (HS256, `LOCAL_JWT_SECRET`); local-only router `/local/auth/{register,login}`
+  mounted only when `ENVIRONMENT=local` (NOT in OpenAPI).
+- `get_current_user` dependency (load/create users row); `GET /v1/me` → `User`.
+- `X-Correlation-Id` middleware; RFC7807 Problem responses.
+- Fill ADR-0002.
 
-Expected behavior:
-- `apps/api`, `apps/worker`, `apps/web`, `infra/terraform`, `scripts`, `docs`, `tasks` exist.
-- Python packages use uv; frontend uses pnpm; Dockerfiles build minimal services.
+Tests: missing/invalid → 401 Problem (correlation id present); valid local token → 200 User;
+local router absent when ENVIRONMENT≠local; prod verifier unit tests (happy/expired/bad-iss/bad-aud).
 
-Tests / Verification:
-- `cd apps/api && uv run ruff check && uv run pyright && uv run pytest`
-- `cd apps/worker && uv run ruff check && uv run pyright && uv run pytest`
-- `pnpm --dir apps/web install && pnpm --dir apps/web lint && pnpm --dir apps/web typecheck && pnpm --dir apps/web build`
-
-Result: **passed** — api: ruff ok, pyright 0 errors, pytest 2/2; worker: ruff ok, pyright 0
-errors, pytest 1/1; web: lint ok, typecheck ok, `next build` ok. (See Evidence log.)
+Result: **passed** (see Evidence log)
 
 ---
 
-## S1-T02 — FastAPI `/healthz`
+## S2-T03 — RDS + ElastiCache + Cognito Terraform (build-only)
 
-Trace:
-- Sprint plan: docs/sprint-plan.md S1-T02
-- ADR: docs/adr/ADR-0006 (walking-skeleton deploy)
-- OpenAPI: intentionally NOT in `docs/openapi.yaml` — sanctioned **internal** operational endpoint
-  (ALB health target), not a product `/v1` route. Response is a handwritten internal schema.
-  (See tasks/lessons.md 2026-05-30 decision note.)
+Trace: SPEC §4/§14, architecture §12, sprint-plan S2-T03.
 
-Assumptions:
-- Root path `/healthz`, no auth, no `/v1` prefix. Static JSON `{service, version, status:"ok"}`.
+Scope: modules/rds (private Postgres, SG from service SG, Secrets Manager creds), modules/elasticache
+(private Redis), modules/cognito (user pool + PKCE app client); wire into environments/dev; pass
+DATABASE_URL/REDIS_URL/COGNITO_* to the API task as secret/SSM references. No committed secrets.
 
-Expected behavior:
-- `GET /healthz` returns 200 with service name, version, status; no auth required.
+Verification: terraform `fmt -check` + `init -backend=false` + `validate`. No apply.
 
-Tests / Verification:
-- `apps/api/tests/test_health.py`: 200; body keys match `HealthResponse`; `status == "ok"`; no auth.
-- Local smoke: run uvicorn, `curl -fsS localhost:8000/healthz`.
-
-Result: **passed** — pytest 2/2; docker-compose container reported `healthy` and
-`curl /healthz` returned `{"service":"pulsepress-api","version":"0.1.0","status":"ok"}`.
+Result: **passed** (see Evidence log)
 
 ---
 
-## S1-T03 — Terraform foundation (build-only)
+## S2-T04 — Local dev stack + DB schema + frontend functional test (user-added)
 
-Trace:
-- Sprint plan: docs/sprint-plan.md S1-T03
-- ADR: ADR-0001 (Terraform), ADR-0006 (walking skeleton), ADR-0007 (scale-to-zero)
-- Architecture: §12 (cloud architecture), SPEC §14 (security)
+Trace: user-directed; local-dev.md, docker-compose. Goal: prove frontend login/register works
+end-to-end and Sprint 2 pieces run locally.
 
-Assumptions:
-- **Build only — no `terraform apply`** (confirmed with user). Cost-minimal shape: API Fargate task
-  in public subnets w/ public IP (no NAT); ALB HTTP:80 only (TLS/ACM deferred). Private subnets
-  defined for Sprint 2 RDS/Redis. No RDS/Redis/SQS/EventBridge/S3/Cognito this sprint.
-- Worker: ECR repo only; no worker ECS service yet (Sprint 4).
-- Local Terraform binary is NOT installed → `fmt`/`validate` run in CI, not locally.
+Scope: docker-compose db+redis+migrate+api+web; apps/web Dockerfile (Next standalone); frontend auth
+wiring (`lib/api.ts`, AuthProvider real login/register/logout + token + /me, wired forms); scripts/dev
+migrate/seed; fill docs/local-dev.md; CI postgres service for the api job.
 
-Expected behavior:
-- network module; ECR repos; ALB → API target group (`/healthz` health check); ECS cluster + API
-  Fargate service; CloudWatch log group. Every resource tagged project/environment. No secrets.
+Verification: docker compose up → healthy; curl register→token, /v1/me→user; web register/login works.
 
-Tests / Verification:
-- `terraform -chdir=infra/terraform/environments/dev fmt -check`
-- `terraform -chdir=infra/terraform/environments/dev init -backend=false`
-- `terraform -chdir=infra/terraform/environments/dev validate`
-- `terraform plan` DEFERRED (needs AWS creds; build-only).
-
-Result: **passed** — terraform 1.9.8 (fetched locally; not installed on PATH): `fmt -check
--recursive` clean, `init -backend=false` ok (aws ~> 5.0), `validate` → "The configuration is
-valid." `plan`/`apply` deferred per build-only decision.
+Result: **passed** (see Evidence log)
 
 ---
 
-## S1-CI — Minimal GitHub Actions CI
+## S2-T05 — README.md (user-specified structure)
 
-Trace:
-- SPEC: §4 (GitHub Actions in stack), §16 (enforcement surface)
-- Added per user decision (not a named S1 task; no deploy stage).
+Trace: user-directed. Sections: 1) Project name + spec-driven/agentic-AI note; 2) description/
+motivation/goal; 3) setup + testing; 4) features (✅/⬜); 5) sprints (✅/⬜). + architecture blurb.
 
-Expected behavior:
-- `.github/workflows/ci.yml` runs on push + PR: api/worker (ruff, pyright, pytest), web (lint,
-  typecheck, build), terraform (fmt -check, init -backend=false, validate), guardrails (Sprint 0
-  CI scripts). No deploy stage.
-
-Tests / Verification:
-- Workflow YAML is well-formed; jobs mirror the local verification family.
-
-Result: **passed** — `.github/workflows/ci.yml` authored with api/worker/web/terraform/guardrails
-jobs. Each job mirrors a verification command proven locally; first real CI run happens on push.
+Result: **passed** (see Evidence log)
 
 ---
 
 ## Evidence log
 
-### apps/api
+### Backend (apps/api) — ruff / pyright / pytest (Postgres on :5544/pulsepress_test)
 ```
-uv run ruff check   -> All checks passed!
-uv run pyright      -> 0 errors, 0 warnings, 0 informations
-uv run pytest -q    -> 2 passed (StarletteDeprecationWarning re: httpx — harmless)
+uv run ruff check    -> All checks passed!
+uv run pyright       -> 0 errors, 0 warnings, 0 informations
+uv run pytest -q     -> 23 passed
+  (2 health, 6 constraints, 3 immutability, 1 migration roundtrip, 11 auth)
+```
+Schema: `alembic revision --autogenerate` detected all 17 tables, the partial-unique active-
+subscription index, both ledger balance CHECKs, and unique keys. `upgrade head` → 17 tables +
+alembic_version; `downgrade base` → 1; re-`upgrade head` → 17. (verified on disposable Postgres)
+
+### Terraform (build-only; terraform 1.9.8)
+```
+fmt -check -recursive                 -> clean
+init -backend=false (modules: network, ecr, alb, ecs, rds, elasticache, cognito) -> initialized
+validate                              -> Success! The configuration is valid.
+```
+Service SG created at env level to avoid an ecs↔rds/redis dependency cycle. DB creds via RDS-managed
+Secrets Manager password; app DATABASE_URL via a Secrets Manager container (no committed secrets).
+
+### Local stack + functional test (docker compose: db + redis + migrate + api + web)
+```
+migrate            -> Running upgrade -> 1d39f6eeaae8, initial schema ; users table present
+api /healthz       -> {"service":"pulsepress-api","version":"0.1.0","status":"ok"} ; container healthy
+POST /local/auth/register {ada} -> 201 {access_token, user{id, display_name:"Ada Lovelace"}}
+GET  /v1/me  (Bearer)           -> 200 same user
+POST /local/auth/login {ada}    -> 200 token + user
+GET  /v1/me  (no token)         -> 401
+web image (Next standalone)     -> built; / , /login , /register all HTTP 200
+```
+(Host port 3000 was occupied on this machine, so the web container was verified on 3001; compose
+maps the standard 3000.)
+
+### Web (apps/web) — lint / typecheck / build
+```
+pnpm lint       -> ✔ No ESLint warnings or errors
+pnpm typecheck  -> tsc --noEmit, no errors
+pnpm build      -> ✓ Compiled; routes / , /login , /register (standalone output)
 ```
 
-### apps/worker
+### Guardrails (Sprint 0 scripts; also in CI)
 ```
-uv run ruff check   -> All checks passed!
-uv run pyright      -> 0 errors, 0 warnings, 0 informations
-uv run pytest -q    -> 1 passed
+validate_openapi.py / check_docs_links.py / test_agent_hooks.py -> all pass
 ```
 
-### apps/web (pnpm 9.15.9 via `npm i -g pnpm@9`; corepack absent on this nvm node)
-```
-pnpm install        -> done (pnpm-lock.yaml generated)
-pnpm lint           -> ✔ No ESLint warnings or errors
-pnpm typecheck      -> tsc --noEmit, no errors
-pnpm build          -> ✓ Compiled successfully; / and /_not-found prerendered (static)
-```
-Note: `next build` warns about multiple lockfiles (root agent-runtime `package-lock.json` is
-gitignored, not part of the project). In a clean checkout / CI only `apps/web/pnpm-lock.yaml`
-exists, so the warning does not occur there.
-
-### Local walking skeleton (docker compose)
-```
-scripts/dev/up.sh           -> image built, container started
-docker inspect health       -> healthy
-curl -fsS :8000/healthz      -> {"service":"pulsepress-api","version":"0.1.0","status":"ok"}
-scripts/dev/down.sh         -> container + network removed
-```
-
-### infra/terraform (terraform 1.9.8 fetched to /tmp; not on PATH)
-```
-terraform -chdir=infra/terraform fmt -check -recursive            -> clean
-terraform -chdir=.../environments/dev init -backend=false          -> initialized (aws ~> 5.0)
-terraform -chdir=.../environments/dev validate                     -> The configuration is valid.
-```
-`.terraform/` (675 MB providers) gitignored; `.terraform.lock.hcl` committed.
-
-### Guardrails (Sprint 0 CI scripts — also run in CI now)
-```
-validate_openapi.py docs/openapi.yaml          -> OpenAPI 3.1.0, 21 paths
-check_docs_links.py docs CLAUDE.md README.md   -> all links resolve, 39 files
-test_agent_hooks.py                            -> 18/18 guard cases pass
-```
-
-### apps/web — design port (S1-web-design)
-```
-pnpm install        -> + lucide-react 0.460.0
-pnpm lint           -> ✔ No ESLint warnings or errors
-pnpm typecheck      -> tsc --noEmit, no errors
-pnpm build          -> ✓ Compiled; routes: / , /login , /register (+ /_not-found), all static
-```
-Ported from `frontend/` (Vite SPA, kept on disk as design reference, gitignored): Home→`app/page.tsx`,
-Login→`app/login/page.tsx`, Register→`app/register/page.tsx`, Layout→`app/components/SiteShell.tsx`,
-outlet context→`app/components/AuthProvider.tsx`. lucide-react + Inter (`next/font`); brand "Nexus"→"PulsePress".
+ADRs filled: ADR-0002 (Cognito + local shortcut), ADR-0012 (ledger_transactions over cross-row CHECK).

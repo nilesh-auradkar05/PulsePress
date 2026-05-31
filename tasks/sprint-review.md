@@ -102,3 +102,61 @@ satisfied: Sprint 1 tasks checked, evidence recorded, lessons captured, ADR-0006
 A deployable walking skeleton: a clean monorepo, a `/healthz` FastAPI service, and Terraform that
 provisions VPC → ECR → ALB → ECS Fargate — all `validate`-clean and CI-gated, demonstrating
 "deploy a tiny slice first" (ADR-0006) before any feature code.
+
+---
+
+## Sprint 2 — Schema + auth (+ local integration test + README)
+
+Status: **Complete (build-only cloud).**
+
+### Review
+
+Delivered the data + auth foundation and a working local stack, plus two user-directed additions.
+
+- **S2-T01 Schema** — SQLAlchemy 2.x models for all **17** Phase-1 tables + Alembic initial
+  migration. Constraints enforced in-schema: `cognito_sub`/`handle` unique, `idempotency_keys`
+  UQ(user,key), the **partial-unique active subscription** index, `publication_daily_stats`
+  UQ(pub,date), the two **`ledger_transactions` balance CHECKs** + UQ(source), `ledger_entries`
+  UQ(tx,account). Append-only tables (`ledger_transactions`, `ledger_entries`, `post_versions`,
+  `reconciliation_log`) protected by a SQLAlchemy immutability guard. ADR-0012 filled.
+- **S2-T02 Auth** — production Cognito RS256/JWKS verification (issuer/audience/exp/token_use), a
+  `ENVIRONMENT=local` dev-auth shortcut (HS256, separate router, not in the OpenAPI contract),
+  `GET /v1/me`, an `X-Correlation-Id` middleware, and RFC 7807 error responses. ADR-0002 filled.
+- **S2-T03 Terraform** — `rds` (private Postgres, managed password in Secrets Manager),
+  `elasticache` (private Redis), `cognito` (user pool + PKCE app client); service SG lifted to the
+  env to avoid a dependency cycle; secrets passed as references. Build-only.
+- **S2-T04 (user) Local stack + functional test** — docker-compose (db + redis + migrate + api +
+  web standalone image), frontend auth wiring (`lib/api.ts`, real `AuthProvider`, wired
+  login/register with error states), `scripts/dev/migrate.sh`, filled `docs/local-dev.md`, and a
+  Postgres service added to the CI backend job. Verified end-to-end with curl + the web container.
+- **S2-T05 (user) README** — full 5-section README (name + spec-driven/agentic-AI note, description/
+  motivation/goal, setup & testing, features ✅/⬜, sprints ✅/⬜).
+
+### Evidence
+
+See `tasks/todo.md` Evidence log. Highlights: backend **23 tests pass** (ruff/pyright clean) against
+real Postgres; migration upgrade/downgrade roundtrip; terraform `fmt`/`init`/`validate` clean across
+7 modules; `docker compose up` → register → `/v1/me` → login all succeed and `/v1/me` is 401 without
+a token; web standalone image serves `/`, `/login`, `/register`.
+
+### Known issues
+
+- **Build-only cloud:** RDS/Redis/Cognito + ECS are authored and `validate`-clean but **not applied**;
+  no AWS resources exist yet.
+- **Local auth only:** the browser uses the dev-auth shortcut; the real Cognito hosted-UI + PKCE flow
+  is deferred (Sprint 5/8). The frontend Home feed is still mock data (posts API is Sprint 3).
+- Host port 3000 was occupied on the dev machine; the web container was verified on 3001 (compose
+  maps the standard 3000).
+- DB-backed tests require Postgres (`TEST_DATABASE_URL`); they skip cleanly when it is unset.
+
+### Next sprint gate
+
+Sprint 3 — Commerce API + outbox (publication/plan CRUD; subscribe/tier-change/cancel/gift with
+idempotency; transactional outbox; bill breakdown). Gate satisfied: Sprint 2 tasks checked, evidence
+recorded, lessons captured, ADR-0002 + ADR-0012 filled.
+
+### Portfolio artifact
+
+A runnable local platform: `scripts/dev/up.sh` brings up Postgres + Redis + a migrated 17-table
+schema + the auth API + the Next.js frontend, and a user can register / sign in end to end — backed
+by a balance-checked, immutable ledger schema and rigorous (local + Cognito) JWT validation.

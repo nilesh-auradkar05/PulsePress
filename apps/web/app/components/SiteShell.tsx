@@ -13,7 +13,7 @@ import { useAuth } from "./AuthProvider";
  * Router: `<Outlet/>` → `{children}`, outlet context → `useAuth()`.
  */
 export function SiteShell({ children }: { children: React.ReactNode }) {
-  const { isLoggedIn, logout } = useAuth();
+  const { isLoggedIn, user, logout } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const router = useRouter();
 
@@ -50,6 +50,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
           <nav className="hidden sm:flex items-center gap-6">
             {isLoggedIn ? (
               <>
+                {user && <span className="text-slate-400">Hi, {user.display_name}</span>}
                 <Link href="/" className="text-slate-300 hover:text-white transition-colors">
                   Home
                 </Link>

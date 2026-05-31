@@ -1,7 +1,9 @@
-# ECS Fargate foundation for the walking skeleton: a cluster, the API task
-# definition + service (public-subnet, public-IP so it can pull from ECR with
-# no NAT), least-privilege security group, and the CloudWatch log group.
-# The worker has an ECR repo but no service yet — it gains one in Sprint 4.
+# ECS Fargate foundation: cluster, the API task definition + service (public
+# subnet, public IP so it can pull from ECR with no NAT), task/execution IAM
+# roles, and the CloudWatch log group. The service security group is created at
+# the environment level and passed in, so RDS/Redis can reference it without a
+# dependency cycle. Non-secret config arrives via `extra_environment`; secrets
+# (e.g. DATABASE_URL) arrive via `secret_environment` (Secrets Manager refs).
 
 resource "aws_ecs_cluster" "this" {
   name = "${var.name_prefix}-cluster"
@@ -38,35 +40,29 @@ resource "aws_iam_role_policy_attachment" "execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# Task role: the application's own identity. Empty for the skeleton; gains
-# scoped permissions (SQS, S3, etc.) in later sprints.
+# Allow the execution role to read the injected secrets at task start.
+resource "aws_iam_role_policy" "execution_secrets" {
+  count = length(var.secret_environment) > 0 ? 1 : 0
+  name  = "${var.name_prefix}-api-exec-secrets"
+  role  = aws_iam_role.execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = values(var.secret_environment)
+      }
+    ]
+  })
+}
+
+# Task role: the application's own identity. Gains scoped permissions
+# (SQS, S3, etc.) in later sprints.
 resource "aws_iam_role" "task" {
   name               = "${var.name_prefix}-api-task"
   assume_role_policy = data.aws_iam_policy_document.ecs_assume.json
-}
-
-resource "aws_security_group" "service" {
-  name        = "${var.name_prefix}-api-sg"
-  description = "API tasks: allow traffic from the ALB only."
-  vpc_id      = var.vpc_id
-
-  ingress {
-    description     = "From ALB"
-    from_port       = var.api_container_port
-    to_port         = var.api_container_port
-    protocol        = "tcp"
-    security_groups = [var.alb_security_group]
-  }
-
-  egress {
-    description = "All outbound"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = { Name = "${var.name_prefix}-api-sg" }
 }
 
 resource "aws_ecs_task_definition" "api" {
@@ -89,9 +85,11 @@ resource "aws_ecs_task_definition" "api" {
           protocol      = "tcp"
         }
       ]
-      environment = [
-        { name = "PULSEPRESS_ENVIRONMENT", value = "dev" }
-      ]
+      environment = concat(
+        [{ name = "PULSEPRESS_ENVIRONMENT", value = var.environment_name }],
+        [for k, v in var.extra_environment : { name = k, value = v }],
+      )
+      secrets = [for k, v in var.secret_environment : { name = k, valueFrom = v }]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -113,7 +111,7 @@ resource "aws_ecs_service" "api" {
 
   network_configuration {
     subnets          = var.public_subnet_ids
-    security_groups  = [aws_security_group.service.id]
+    security_groups  = [var.service_security_group_id]
     assign_public_ip = true
   }
 

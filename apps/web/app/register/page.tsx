@@ -11,14 +11,23 @@ export default function Register() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
-  const { login } = useAuth();
+  const { register } = useAuth();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Placeholder auth — real Cognito PKCE flow lands in a later sprint.
-    login();
-    router.push("/");
+    setError(null);
+    setSubmitting(true);
+    try {
+      await register(email, name, password);
+      router.push("/");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sign up failed");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const benefits = [
@@ -82,6 +91,12 @@ export default function Register() {
               </h1>
               <p className="text-slate-400">Start your journey in seconds</p>
             </div>
+
+            {error && (
+              <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                {error}
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
@@ -161,9 +176,10 @@ export default function Register() {
 
               <button
                 type="submit"
-                className="w-full py-3.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl text-white hover:shadow-lg hover:shadow-violet-500/50 transition-all flex items-center justify-center gap-2 group"
+                disabled={submitting}
+                className="w-full py-3.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl text-white hover:shadow-lg hover:shadow-violet-500/50 transition-all flex items-center justify-center gap-2 group disabled:opacity-60"
               >
-                <span>Create account</span>
+                <span>{submitting ? "Creating account…" : "Create account"}</span>
                 <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
               </button>
             </form>

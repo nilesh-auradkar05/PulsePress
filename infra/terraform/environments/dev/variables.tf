@@ -33,3 +33,9 @@ variable "api_desired_count" {
   type        = number
   default     = 1
 }
+
+variable "cognito_domain_prefix" {
+  description = "Cognito hosted-UI domain prefix (must be globally unique)."
+  type        = string
+  default     = "pulsepress-dev-auth"
+}
