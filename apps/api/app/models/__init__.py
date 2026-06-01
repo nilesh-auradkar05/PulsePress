@@ -7,7 +7,8 @@ immutability guard on the append-only tables.
 
 from __future__ import annotations
 
-from app.db.immutable import register_immutable
+from app.db.base import Base
+from app.db.immutable import register_db_immutable_triggers, register_immutable
 
 from .commerce import (
     GiftTransaction,
@@ -23,6 +24,7 @@ from .publishing import NewsletterSend, Post, PostVersion, Publication
 from .read_models import NotificationEvent, PublicationDailyStats, UserFeedEvent
 
 register_immutable(LedgerTransaction, LedgerEntry, PostVersion, ReconciliationLog)
+register_db_immutable_triggers(Base.metadata)
 
 __all__ = [
     "User",

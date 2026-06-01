@@ -23,7 +23,14 @@ AUDIENCE = "test-client-id"
 
 
 @pytest.fixture()
-def client(engine: Engine) -> Iterator[TestClient]:
+def client(engine: Engine, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    monkeypatch.setattr(settings, "environment", "local")
+    monkeypatch.setattr(
+        settings,
+        "local_jwt_secret",
+        "test-local-jwt-secret-at-least-32-bytes",
+    )
+    monkeypatch.setattr(settings, "cors_allowed_origins", ["http://localhost:3000"])
     app = create_app()
     factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
@@ -59,6 +66,20 @@ def test_me_without_token_is_401_problem(client: TestClient) -> None:
 def test_me_with_invalid_token_is_401(client: TestClient) -> None:
     resp = client.get("/v1/me", headers={"Authorization": "Bearer not-a-jwt"})
     assert resp.status_code == 401
+
+
+def test_cors_preflight_allows_configured_origin(client: TestClient) -> None:
+    resp = client.options(
+        "/v1/me",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "authorization",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert "authorization" in resp.headers["access-control-allow-headers"].lower()
 
 
 # --- local-dev auth flow --------------------------------------------------
@@ -98,12 +119,25 @@ def test_login_unknown_is_401_then_works_after_register(client: TestClient) -> N
 
 def test_local_router_absent_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "cognito_issuer", ISSUER)
+    monkeypatch.setattr(settings, "cognito_audience", AUDIENCE)
     prod_app = create_app()
     with TestClient(prod_app) as prod_client:
         resp = prod_client.post(
             "/local/auth/register", json={"email": "a@b.com", "display_name": "A"}
         )
     assert resp.status_code == 404
+
+
+def test_production_startup_requires_cognito_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "cognito_issuer", "")
+    monkeypatch.setattr(settings, "cognito_audience", "")
+    with pytest.raises(RuntimeError, match="Missing required production auth settings"):
+        with TestClient(create_app()):
+            pass
 
 
 # --- production Cognito verifier (no network; key passed directly) ---------
@@ -160,5 +194,12 @@ def test_cognito_verifier_rejects_bad_audience(rsa_keys) -> None:
 def test_cognito_verifier_rejects_bad_token_use(rsa_keys) -> None:
     private_key, public_key = rsa_keys
     token = _mint_rs256(private_key, token_use="nonsense")
+    with pytest.raises(TokenError):
+        decode_cognito(token, public_key, issuer=ISSUER, audience=AUDIENCE)
+
+
+def test_cognito_verifier_rejects_access_token_use(rsa_keys) -> None:
+    private_key, public_key = rsa_keys
+    token = _mint_rs256(private_key, token_use="access")
     with pytest.raises(TokenError):
         decode_cognito(token, public_key, issuer=ISSUER, audience=AUDIENCE)

@@ -1,7 +1,7 @@
 """Production Cognito JWT validation.
 
 Validates RS256 signature (via the pool's JWKS), issuer, audience, expiration,
-and ``token_use`` (SPEC §14, CLAUDE.md §15). The pure ``decode_cognito`` step
+and ID-token ``token_use`` (SPEC §14, CLAUDE.md §15). The pure ``decode_cognito`` step
 takes an already-resolved key so it is unit-testable without network access;
 ``verify_cognito_token`` resolves the signing key from the JWKS first.
 """
@@ -14,7 +14,7 @@ from typing import Any
 import jwt
 from jwt import InvalidTokenError, PyJWKClient
 
-VALID_TOKEN_USES = ("id", "access")
+VALID_TOKEN_USE = "id"
 
 
 class TokenError(Exception):
@@ -29,11 +29,11 @@ def decode_cognito(token: str, key: Any, *, issuer: str, audience: str) -> dict[
             algorithms=["RS256"],
             audience=audience,
             issuer=issuer,
-            options={"require": ["exp", "iss", "aud"]},
+            options={"require": ["exp", "iss", "aud", "sub", "token_use"]},
         )
     except InvalidTokenError as exc:
         raise TokenError(str(exc)) from exc
-    if claims.get("token_use") not in VALID_TOKEN_USES:
+    if claims.get("token_use") != VALID_TOKEN_USE:
         raise TokenError("invalid token_use claim")
     return claims
 

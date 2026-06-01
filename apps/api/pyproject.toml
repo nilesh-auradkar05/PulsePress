@@ -46,6 +46,8 @@ extend-immutable-calls = ["fastapi.Depends", "fastapi.Security"]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
 include = ["app", "tests"]
+venvPath = "."
+venv = ".venv"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
