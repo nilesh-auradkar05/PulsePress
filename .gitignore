@@ -245,7 +245,8 @@ apps/web/.next/
 apps/web/out/
 apps/web/next-env.d.ts
 apps/web/*.tsbuildinfo
-docs/
+docs/*
+!docs/openapi.yaml
 
 # --- PulsePress: Terraform (keep .terraform.lock.hcl + *.tfvars.example tracked) ---
 **/.terraform/*
