@@ -1,6 +1,38 @@
-# Local walking-skeleton stack (Sprint 1): API only.
-# Postgres/Redis arrive in Sprint 2; the worker wires to them in Sprint 4.
+# Local full stack (Sprint 2): Postgres + Redis + API (with migrations) + web.
+# Dev-only credentials; nothing here is a real secret.
 services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: pulsepress
+      POSTGRES_PASSWORD: pulsepress
+      POSTGRES_DB: pulsepress
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulsepress"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  # One-shot: apply Alembic migrations, then exit.
+  migrate:
+    build:
+      context: ./apps/api
+    command: ["uv", "run", "--no-dev", "alembic", "upgrade", "head"]
+    environment:
+      PULSEPRESS_DATABASE_URL: postgresql+psycopg://pulsepress:pulsepress@db:5432/pulsepress
+    depends_on:
+      db:
+        condition: service_healthy
+
   api:
     build:
       context: ./apps/api
@@ -8,6 +40,14 @@ services:
       - "8000:8000"
     environment:
       PULSEPRESS_ENVIRONMENT: local
+      PULSEPRESS_DATABASE_URL: postgresql+psycopg://pulsepress:pulsepress@db:5432/pulsepress
+      PULSEPRESS_LOCAL_JWT_SECRET: local-dev-only-secret-change-me-in-real-environments
+      PULSEPRESS_CORS_ALLOWED_ORIGINS: '["http://localhost:3000","http://127.0.0.1:3000"]'
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test:
         - CMD
@@ -18,3 +58,17 @@ services:
       timeout: 3s
       retries: 5
       start_period: 5s
+
+  web:
+    build:
+      context: ./apps/web
+      args:
+        NEXT_PUBLIC_AUTH_MODE: local
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

@@ -49,3 +49,19 @@ Record user corrections here. Format: date / correction / root cause / preventio
   file and use `git commit -F <file>` (the file path carries no trigger words), or reword to avoid
   the literal `terraform apply`/`terraform destroy` adjacency. Do not disable the guard.
 - **Applied:** Yes (Sprint 0 commit used `git commit -F`).
+
+## 2026-05-30 — Sprint 2 user-directed additions (frontend auth wiring + README)
+
+- **Direction:** The user added two tasks beyond the canonical Sprint 2 (S2-T01/02/03): a local
+  setup + DB-schema + functional-test task whose goal is a working frontend login/registration, and
+  a README rewrite. Both are ahead of where the sprint plan places them (frontend wiring ~Sprint 5,
+  README ~Sprint 8).
+- **Decision/why:** Accepted as user-directed and kept **on-spec** — auth wiring uses the
+  `ENVIRONMENT=local` dev-auth shortcut already in S2-T02 scope (no new product endpoints, no Cognito
+  browser flow yet), and the frontend change is auth-only (Home stays mock until the posts API in
+  Sprint 3). This satisfies the "prove it works locally" goal without expanding the product surface.
+- **Prevention rule:** When the user directs work earlier than the sprint plan, keep it within the
+  current sprint's contracts (here: the local-auth shortcut and existing schema), record it as an
+  explicit S2-T04/T05, and note the deviation rather than silently pulling forward later-sprint
+  features.
+- **Applied:** Yes.

@@ -8,6 +8,11 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "pydantic>=2.9",
     "pydantic-settings>=2.5",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "psycopg[binary]>=3.2",
+    "pyjwt[crypto]>=2.9",
+    "httpx>=0.27",
 ]
 
 [dependency-groups]
@@ -15,7 +20,6 @@ dev = [
     "ruff>=0.7",
     "pyright>=1.1.380",
     "pytest>=8.3",
-    "httpx>=0.27",
 ]
 
 # Application, not a distributable package: manage the environment but do not
@@ -30,10 +34,20 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# Alembic migrations are machine-generated; do not hand-wrap their long lines.
+"alembic/versions/*" = ["E501"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection idiom calls Depends()/Security() in defaults.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Security"]
+
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
 include = ["app", "tests"]
+venvPath = "."
+venv = ".venv"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

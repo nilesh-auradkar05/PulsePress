@@ -8,14 +8,20 @@ variable "aws_region" {
   type        = string
 }
 
-variable "vpc_id" {
-  description = "VPC id the service security group lives in."
+variable "environment_name" {
+  description = "Value for the PULSEPRESS_ENVIRONMENT task env var."
   type        = string
+  default     = "dev"
 }
 
 variable "public_subnet_ids" {
   description = "Subnets the Fargate tasks run in (public, with public IP)."
   type        = list(string)
+}
+
+variable "service_security_group_id" {
+  description = "Security group for the API tasks (created at the environment level)."
+  type        = string
 }
 
 variable "api_image" {
@@ -24,20 +30,13 @@ variable "api_image" {
 }
 
 variable "api_container_port" {
-  description = "Port the API container listens on."
-  type        = number
-  default     = 8000
+  type    = number
+  default = 8000
 }
 
 variable "api_desired_count" {
-  description = "Number of API tasks to run."
-  type        = number
-  default     = 1
-}
-
-variable "alb_security_group" {
-  description = "ALB security group id allowed to reach the tasks."
-  type        = string
+  type    = number
+  default = 1
 }
 
 variable "target_group_arn" {
@@ -45,8 +44,19 @@ variable "target_group_arn" {
   type        = string
 }
 
+variable "extra_environment" {
+  description = "Additional non-secret task environment variables."
+  type        = map(string)
+  default     = {}
+}
+
+variable "secret_environment" {
+  description = "Task env vars sourced from Secrets Manager (name => secret ARN / valueFrom)."
+  type        = map(string)
+  default     = {}
+}
+
 variable "log_retention_days" {
-  description = "CloudWatch log retention for the API service."
-  type        = number
-  default     = 14
+  type    = number
+  default = 14
 }

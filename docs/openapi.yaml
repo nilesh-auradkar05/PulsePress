@@ -73,6 +73,14 @@ paths:
       security:
       - bearerAuth: []
       parameters:
+      - name: owner
+        in: query
+        required: false
+        description: Set to `me` to list only active publications owned by the authenticated caller.
+        schema:
+          type: string
+          enum:
+          - me
       - $ref: '#/components/parameters/Limit'
       - $ref: '#/components/parameters/Cursor'
       responses:
@@ -1248,6 +1256,7 @@ components:
       - name
       - is_active
       - created_at
+      - updated_at
       properties:
         id:
           type: string
@@ -1267,6 +1276,7 @@ components:
         description:
           type: string
           maxLength: 500
+          nullable: true
         avatar_url:
           type: string
           format: uri
@@ -1274,6 +1284,9 @@ components:
         is_active:
           type: boolean
         created_at:
+          type: string
+          format: date-time
+        updated_at:
           type: string
           format: date-time
     PublicationCreate:
@@ -1294,6 +1307,7 @@ components:
         description:
           type: string
           maxLength: 500
+          nullable: true
     PublicationDetail:
       allOf:
       - $ref: '#/components/schemas/Publication'
