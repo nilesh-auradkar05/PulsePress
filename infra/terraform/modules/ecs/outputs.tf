@@ -8,6 +8,11 @@ output "service_name" {
   value       = aws_ecs_service.api.name
 }
 
+output "worker_service_name" {
+  description = "ECS service name for the worker."
+  value       = aws_ecs_service.worker.name
+}
+
 output "log_group_name" {
   description = "CloudWatch log group for the API service."
   value       = aws_cloudwatch_log_group.api.name

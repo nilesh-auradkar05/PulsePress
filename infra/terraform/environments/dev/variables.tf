@@ -28,8 +28,20 @@ variable "api_image_tag" {
   default     = "bootstrap"
 }
 
+variable "worker_image_tag" {
+  description = "Image tag for the worker task definition (set by the deploy pipeline)."
+  type        = string
+  default     = "bootstrap"
+}
+
 variable "api_desired_count" {
   description = "Number of API tasks to run (0 scales the service to zero)."
+  type        = number
+  default     = 1
+}
+
+variable "worker_desired_count" {
+  description = "Number of worker tasks to run (0 scales worker processing to zero)."
   type        = number
   default     = 1
 }

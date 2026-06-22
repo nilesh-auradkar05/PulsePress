@@ -56,7 +56,6 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       ? stored
       : "current";
   });
-  const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -97,17 +96,11 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     router.replace(query ? `/explore?q=${encodeURIComponent(query)}` : "/explore");
   };
 
-  const showMockSetting = (message: string) => {
-    setSettingsNotice(message);
-    setProfilePanel("settings");
-  };
-
   const openProfile = () => {
     setIsProfileOpen((open) => {
       const next = !open;
       if (next) {
         setProfilePanel("menu");
-        setSettingsNotice(null);
       }
       return next;
     });
@@ -196,7 +189,6 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
                               type="button"
                               onClick={() => {
                                 setProfilePanel("menu");
-                                setSettingsNotice(null);
                               }}
                               className="rounded-md p-1 text-slate-400 hover:bg-white/5 hover:text-white"
                               aria-label="Back to profile menu"
@@ -274,67 +266,42 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
 
                         {profilePanel === "settings" && (
                           <div className="space-y-3 py-3">
-                            {settingsNotice && (
-                              <div className="rounded-md border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
-                                {settingsNotice}
-                              </div>
-                            )}
                             <button
                               type="button"
-                              onClick={() =>
-                                showMockSetting(
-                                  "Password changes are handled by Cognito in production. Local development auth is passwordless.",
-                                )
-                              }
-                              className="flex w-full items-center justify-between rounded-md border border-white/10 bg-white/5 px-3 py-2 text-left text-sm text-slate-200 hover:bg-white/10"
+                              disabled
+                              className="flex w-full items-center justify-between rounded-md border border-white/10 bg-white/5 px-3 py-2 text-left text-sm text-slate-500"
                             >
                               Change password
-                              <span className="text-xs text-slate-500">Mock</span>
+                              <span className="text-xs text-slate-500">Cognito workflow required</span>
                             </button>
                             <button
                               type="button"
-                              onClick={() =>
-                                showMockSetting(
-                                  "Username updates need a dedicated user-profile API before they can persist.",
-                                )
-                              }
-                              className="flex w-full items-center justify-between rounded-md border border-white/10 bg-white/5 px-3 py-2 text-left text-sm text-slate-200 hover:bg-white/10"
+                              disabled
+                              className="flex w-full items-center justify-between rounded-md border border-white/10 bg-white/5 px-3 py-2 text-left text-sm text-slate-500"
                             >
                               Change username
-                              <span className="text-xs text-slate-500">Mock</span>
+                              <span className="text-xs text-slate-500">Profile API required</span>
                             </button>
                             <button
                               type="button"
-                              onClick={() =>
-                                showMockSetting(
-                                  "Subscription management is not implemented yet, so unsubscribe-all is disabled.",
-                                )
-                              }
-                              className="flex w-full items-center justify-between rounded-md border border-white/10 bg-white/5 px-3 py-2 text-left text-sm text-slate-200 hover:bg-white/10"
+                              disabled
+                              className="flex w-full items-center justify-between rounded-md border border-white/10 bg-white/5 px-3 py-2 text-left text-sm text-slate-500"
                             >
                               Unsubscribe all publications
-                              <span className="text-xs text-slate-500">Mock</span>
+                              <span className="text-xs text-slate-500">Bulk API required</span>
                             </button>
                             <button
                               type="button"
-                              onClick={() =>
-                                showMockSetting(
-                                  "Bulk deletion of owned published publications is outside the current publishing API. Use archive per post for now.",
-                                )
-                              }
-                              className="flex w-full items-center gap-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-left text-sm text-amber-100 hover:bg-amber-500/15"
+                              disabled
+                              className="flex w-full items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-left text-sm text-amber-200/60"
                             >
                               <ShieldAlert size={16} />
                               Delete all owned published publications
                             </button>
                             <button
                               type="button"
-                              onClick={() =>
-                                showMockSetting(
-                                  "Permanent account deletion requires a backend account-deletion workflow and audit path before it can be enabled.",
-                                )
-                              }
-                              className="flex w-full items-center gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-left text-sm text-red-100 hover:bg-red-500/15"
+                              disabled
+                              className="flex w-full items-center gap-2 rounded-md border border-red-500/25 bg-red-500/10 px-3 py-2 text-left text-sm text-red-200/60"
                             >
                               <ShieldAlert size={16} />
                               Delete account permanently

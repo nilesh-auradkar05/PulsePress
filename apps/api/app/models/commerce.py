@@ -66,6 +66,9 @@ class Subscription(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("subscription_plans.id"), index=True, nullable=False
     )
     amount_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # Creation-time monetary facts remain stable when a subscriber changes tier.
+    charged_amount_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    charged_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
     period_start: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

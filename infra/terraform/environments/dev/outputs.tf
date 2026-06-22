@@ -13,6 +13,36 @@ output "ecs_cluster_name" {
   value       = module.ecs.cluster_name
 }
 
+output "worker_service_name" {
+  description = "ECS service running the outbox poller and SQS worker."
+  value       = module.ecs.worker_service_name
+}
+
+output "event_bus_name" {
+  description = "EventBridge bus receiving transactional outbox envelopes."
+  value       = module.messaging.event_bus_name
+}
+
+output "worker_queue_url" {
+  description = "Primary SQS queue for worker delivery."
+  value       = module.messaging.worker_queue_url
+}
+
+output "worker_dead_letter_queue_url" {
+  description = "SQS DLQ for exhausted worker messages."
+  value       = module.messaging.dead_letter_queue_url
+}
+
+output "event_delivery_dead_letter_queue_url" {
+  description = "EventBridge target-delivery DLQ, separate from worker poison messages."
+  value       = module.messaging.event_delivery_dead_letter_queue_url
+}
+
+output "receipt_bucket_name" {
+  description = "Private S3 bucket for immutable worker receipts."
+  value       = module.messaging.receipt_bucket_name
+}
+
 output "rds_endpoint" {
   description = "RDS Postgres host address."
   value       = module.rds.endpoint

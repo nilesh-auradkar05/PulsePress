@@ -14,8 +14,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-/lib/
-/lib64/
+lib/
+lib64/
 parts/
 sdist/
 var/
@@ -245,8 +245,11 @@ apps/web/.next/
 apps/web/out/
 apps/web/next-env.d.ts
 apps/web/*.tsbuildinfo
+apps/api/alembic/
 docs/*
 !docs/openapi.yaml
+!docs/aws-production-setup-guide.md
+!docs/setup-test-guide.md
 
 # --- PulsePress: Terraform (keep .terraform.lock.hcl + *.tfvars.example tracked) ---
 **/.terraform/*
@@ -263,3 +266,10 @@ override.tf.json
 *_override.tf.json
 .terraformrc
 terraform.rc
+
+# --- PulsePress: AI files ---
+
+.claude
+.agents
+.codegraph
+.codex

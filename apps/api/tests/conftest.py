@@ -11,12 +11,16 @@ import os
 from collections.abc import Iterator
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 import app.models  # noqa: F401  (register all models on Base.metadata)
+from app.core.config import settings
 from app.db.base import Base
+from app.db.session import get_session
+from app.main import create_app
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
@@ -45,3 +49,28 @@ def db(engine: Engine):
         session.close()
         txn.rollback()
         conn.close()
+
+
+@pytest.fixture()
+def client(engine: Engine, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    """A TestClient in local-auth mode, sharing the test ``engine``.
+
+    The app's request sessions commit to the same engine the ``db`` fixture
+    reads, so committed commerce writes are visible to DB assertions.
+    """
+    monkeypatch.setattr(settings, "environment", "local")
+    monkeypatch.setattr(settings, "local_jwt_secret", "test-local-jwt-secret-at-least-32-bytes")
+    app = create_app()
+    factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+    def _override() -> Iterator[Session]:
+        session = factory()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_session] = _override
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()

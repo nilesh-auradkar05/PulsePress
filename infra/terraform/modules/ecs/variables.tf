@@ -39,6 +39,34 @@ variable "api_desired_count" {
   default = 1
 }
 
+variable "worker_image" {
+  description = "Fully-qualified worker container image (repo URL : tag)."
+  type        = string
+}
+
+variable "worker_desired_count" {
+  description = "Number of worker tasks to run (0 scales worker processing to zero)."
+  type        = number
+  default     = 1
+}
+
+variable "worker_environment" {
+  description = "Non-secret worker environment variables."
+  type        = map(string)
+  default     = {}
+}
+
+variable "worker_secret_environment" {
+  description = "Worker env vars sourced from Secrets Manager (name => secret ARN / valueFrom)."
+  type        = map(string)
+  default     = {}
+}
+
+variable "worker_task_policy" {
+  description = "JSON IAM policy granting the worker access to its queue, event bus, and receipt bucket."
+  type        = string
+}
+
 variable "target_group_arn" {
   description = "ALB target group the service registers into."
   type        = string

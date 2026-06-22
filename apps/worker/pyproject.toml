@@ -1,12 +1,18 @@
 [project]
 name = "pulsepress-worker"
 version = "0.1.0"
-description = "PulsePress worker service — Sprint 1 walking skeleton."
+description = "PulsePress worker service — outbox delivery and ledger processing."
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "boto3>=1.35",
+    "psycopg[binary]>=3.2",
+    "sqlalchemy>=2.0",
+]
 
 [dependency-groups]
 dev = [
+    "alembic>=1.13",
+    "pydantic-settings>=2.5",
     "ruff>=0.7",
     "pyright>=1.1.380",
     "pytest>=8.3",
@@ -25,7 +31,9 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
-include = ["app", "tests"]
+include = ["app", "pulsepress_worker", "tests"]
+venvPath = "."
+venv = ".venv"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

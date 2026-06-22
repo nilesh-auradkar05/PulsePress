@@ -67,7 +67,7 @@ class PublicationUpdate(BaseModel):
 
 
 class PlanOut(BaseModel):
-    """Stubbed until the subscription-plan API is implemented."""
+    model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     publication_id: uuid.UUID
@@ -86,6 +86,14 @@ class PublicationDetail(PublicationOut):
 class PublicationList(BaseModel):
     items: list[PublicationOut]
     next_cursor: str | None = None
+
+
+class PublicationSummary(BaseModel):
+    publication_id: uuid.UUID
+    subscriber_count: int = Field(ge=0)
+    post_count: int = Field(ge=0)
+    recent_revenue_cents: int = Field(default=0, ge=0)
+    generated_at: datetime.datetime
 
 
 class PostOut(BaseModel):
