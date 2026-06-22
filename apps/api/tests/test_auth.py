@@ -73,13 +73,17 @@ def test_cors_preflight_allows_configured_origin(client: TestClient) -> None:
         "/v1/me",
         headers={
             "Origin": "http://localhost:3000",
-            "Access-Control-Request-Method": "GET",
-            "Access-Control-Request-Headers": "authorization",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "authorization,idempotency-key",
         },
     )
     assert resp.status_code == 200
     assert resp.headers["access-control-allow-origin"] == "http://localhost:3000"
-    assert "authorization" in resp.headers["access-control-allow-headers"].lower()
+    allowed_headers = resp.headers["access-control-allow-headers"].lower()
+    assert "authorization" in allowed_headers
+    # Commerce writes (subscribe/gift) send Idempotency-Key; a missing allow entry
+    # makes the browser block the preflight with "Failed to fetch".
+    assert "idempotency-key" in allowed_headers
 
 
 # --- local-dev auth flow --------------------------------------------------

@@ -33,6 +33,29 @@ export type Publication = {
   updated_at: string;
 };
 
+export type Plan = {
+  id: string;
+  publication_id: string;
+  name: string;
+  monthly_price_cents: number;
+  currency: "USD";
+  allow_open_amount: boolean;
+  benefits: string[] | null;
+  is_active: boolean;
+};
+
+export type PublicationDetail = Publication & {
+  active_plans: Plan[];
+};
+
+export type PublicationSummary = {
+  publication_id: string;
+  subscriber_count: number;
+  post_count: number;
+  recent_revenue_cents: number;
+  generated_at: string;
+};
+
 export type PublicationList = {
   items: Publication[];
   next_cursor: string | null;
@@ -91,6 +114,28 @@ export type PostPublishResult = {
   published_at: string;
   version_id: string;
   newsletter_status: "queued" | "already_processed";
+};
+
+export type BillBreakdown = {
+  amount_cents: number;
+  author_net_cents: number;
+  platform_fee_cents: number;
+  tax_cents: number;
+  total_charged_cents: number;
+};
+
+export type SubscriptionResult = {
+  subscription_id: string;
+  status: "active" | "canceled" | "expired";
+  tier: "free" | "paid";
+  bill: BillBreakdown | null;
+  period_end: string | null;
+};
+
+export type GiftResult = {
+  gift_id: string;
+  status: "pending" | "processed" | "failed";
+  bill: BillBreakdown;
 };
 
 export class ApiError extends Error {
@@ -157,6 +202,17 @@ function withQuery(path: string, params: Record<string, string | undefined>): st
   return suffix ? `${path}?${suffix}` : path;
 }
 
+function idempotencyKey(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID().replaceAll("-", "");
+  }
+  return `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`.padEnd(16, "0");
+}
+
+function commerceHeaders(): HeadersInit {
+  return { "Idempotency-Key": idempotencyKey() };
+}
+
 export const api = {
   register: (email: string, displayName: string) => {
     ensureLocalAuth();
@@ -185,6 +241,26 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
+  getPublication: (publicationId: string) =>
+    request<PublicationDetail>(`/v1/publications/${publicationId}`),
+  getPublicationSummary: (publicationId: string) =>
+    request<PublicationSummary>(`/v1/publications/${publicationId}/summary`),
+  listPlans: (publicationId: string) =>
+    request<Plan[]>(`/v1/publications/${publicationId}/plans`),
+  createPlan: (
+    publicationId: string,
+    body: {
+      name: string;
+      monthly_price_cents: number;
+      allow_open_amount?: boolean;
+      benefits?: string[] | null;
+      currency?: "USD";
+    },
+  ) =>
+    request<Plan>(`/v1/publications/${publicationId}/plans`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   listPosts: (publicationId: string, params?: { status?: PostStatus }) =>
     request<PostList>(
       withQuery(`/v1/publications/${publicationId}/posts`, { status: params?.status }),
@@ -203,4 +279,30 @@ export const api = {
   publishPost: (postId: string) =>
     request<PostPublishResult>(`/v1/posts/${postId}/publish`, { method: "POST" }),
   archivePost: (postId: string) => request<Post>(`/v1/posts/${postId}`, { method: "DELETE" }),
+  createSubscription: (body: { publication_id: string; plan_id: string; amount_cents: number }) =>
+    request<SubscriptionResult>("/v1/subscriptions", {
+      method: "POST",
+      headers: commerceHeaders(),
+      body: JSON.stringify(body),
+    }),
+  changeSubscriptionTier: (
+    subscriptionId: string,
+    body: { new_plan_id: string; new_amount_cents: number },
+  ) =>
+    request<SubscriptionResult>(`/v1/subscriptions/${subscriptionId}`, {
+      method: "PATCH",
+      headers: commerceHeaders(),
+      body: JSON.stringify(body),
+    }),
+  cancelSubscription: (subscriptionId: string) =>
+    request(`/v1/subscriptions/${subscriptionId}`, {
+      method: "DELETE",
+      headers: commerceHeaders(),
+    }),
+  sendGift: (body: { publication_id: string; amount_cents: number; message?: string | null }) =>
+    request<GiftResult>("/v1/gifts", {
+      method: "POST",
+      headers: commerceHeaders(),
+      body: JSON.stringify(body),
+    }),
 };

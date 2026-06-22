@@ -83,6 +83,44 @@ def _create_post(
     return response.json()
 
 
+def _create_plan(
+    client: TestClient,
+    token: str,
+    publication_id: str,
+    *,
+    name: str = "Supporter",
+    price: int = 500,
+) -> dict:
+    response = client.post(
+        f"/v1/publications/{publication_id}/plans",
+        headers=_auth(token),
+        json={"name": name, "monthly_price_cents": price},
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def _subscribe(
+    client: TestClient,
+    token: str,
+    publication_id: str,
+    plan_id: str,
+    *,
+    amount_cents: int,
+) -> dict:
+    response = client.post(
+        "/v1/subscriptions",
+        headers={**_auth(token), "Idempotency-Key": uuid.uuid4().hex},
+        json={
+            "publication_id": publication_id,
+            "plan_id": plan_id,
+            "amount_cents": amount_cents,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
 def test_publications_are_scoped_for_owner_views(client: TestClient) -> None:
     token_a, user_a = _register(client, "Ada")
     token_b, _user_b = _register(client, "Bea")
@@ -192,6 +230,109 @@ def test_paid_post_body_is_withheld_from_non_owner(client: TestClient) -> None:
     assert reader_read.status_code == 200
     assert reader_read.json()["entitled"] is False
     assert reader_read.json()["body"] is None
+
+
+def test_paid_subscription_unlocks_paid_post_body(client: TestClient) -> None:
+    owner_token, _user_a = _register(client, "Writer")
+    reader_token, _user_b = _register(client, "Reader")
+    publication = _create_publication(client, owner_token, f"paid-sub-{uuid.uuid4().hex[:8]}")
+    plan = _create_plan(client, owner_token, publication["id"], price=500)
+    post = _create_post(
+        client,
+        owner_token,
+        publication["id"],
+        title="Paid insight",
+        visibility="paid",
+    )
+    published = client.post(f"/v1/posts/{post['id']}/publish", headers=_auth(owner_token))
+    assert published.status_code == 200
+
+    _subscribe(client, reader_token, publication["id"], plan["id"], amount_cents=500)
+    reader_read = client.get(f"/v1/posts/{post['id']}", headers=_auth(reader_token))
+
+    assert reader_read.status_code == 200
+    assert reader_read.json()["entitled"] is True
+    assert reader_read.json()["body"] == "Body text for the test post."
+
+
+def test_free_subscription_does_not_unlock_paid_post_body(client: TestClient) -> None:
+    owner_token, _user_a = _register(client, "Writer")
+    reader_token, _user_b = _register(client, "Reader")
+    publication = _create_publication(client, owner_token, f"free-sub-{uuid.uuid4().hex[:8]}")
+    free_plan = _create_plan(client, owner_token, publication["id"], name="Free", price=0)
+    post = _create_post(
+        client,
+        owner_token,
+        publication["id"],
+        title="Paid insight",
+        visibility="paid",
+    )
+    published = client.post(f"/v1/posts/{post['id']}/publish", headers=_auth(owner_token))
+    assert published.status_code == 200
+
+    _subscribe(client, reader_token, publication["id"], free_plan["id"], amount_cents=0)
+    reader_read = client.get(f"/v1/posts/{post['id']}", headers=_auth(reader_token))
+
+    assert reader_read.status_code == 200
+    assert reader_read.json()["entitled"] is False
+    assert reader_read.json()["body"] is None
+
+
+def test_canceled_paid_subscription_retains_paid_post_access(client: TestClient) -> None:
+    owner_token, _user_a = _register(client, "Writer")
+    reader_token, _user_b = _register(client, "Reader")
+    publication = _create_publication(client, owner_token, f"cancel-access-{uuid.uuid4().hex[:8]}")
+    plan = _create_plan(client, owner_token, publication["id"], price=500)
+    post = _create_post(
+        client,
+        owner_token,
+        publication["id"],
+        title="Paid insight",
+        visibility="paid",
+    )
+    published = client.post(f"/v1/posts/{post['id']}/publish", headers=_auth(owner_token))
+    assert published.status_code == 200
+
+    subscription = _subscribe(client, reader_token, publication["id"], plan["id"], amount_cents=500)
+    canceled = client.delete(
+        f"/v1/subscriptions/{subscription['subscription_id']}",
+        headers={**_auth(reader_token), "Idempotency-Key": uuid.uuid4().hex},
+    )
+    assert canceled.status_code == 200, canceled.text
+
+    reader_read = client.get(f"/v1/posts/{post['id']}", headers=_auth(reader_token))
+    assert reader_read.status_code == 200
+    assert reader_read.json()["entitled"] is True
+    assert reader_read.json()["body"] == "Body text for the test post."
+
+
+def test_publication_detail_embeds_plans_and_summary_counts(client: TestClient) -> None:
+    owner_token, _user_a = _register(client, "Writer")
+    reader_token, _user_b = _register(client, "Reader")
+    publication = _create_publication(client, owner_token, f"summary-{uuid.uuid4().hex[:8]}")
+    free_plan = _create_plan(client, owner_token, publication["id"], name="Free", price=0)
+    paid_plan = _create_plan(client, owner_token, publication["id"], name="Supporter", price=500)
+    post = _create_post(client, owner_token, publication["id"], title="Published")
+    published = client.post(f"/v1/posts/{post['id']}/publish", headers=_auth(owner_token))
+    assert published.status_code == 200
+    _subscribe(client, reader_token, publication["id"], paid_plan["id"], amount_cents=500)
+
+    detail = client.get(f"/v1/publications/{publication['id']}", headers=_auth(reader_token))
+    assert detail.status_code == 200
+    assert [plan["id"] for plan in detail.json()["active_plans"]] == [
+        free_plan["id"],
+        paid_plan["id"],
+    ]
+
+    summary = client.get(
+        f"/v1/publications/{publication['id']}/summary",
+        headers=_auth(reader_token),
+    )
+    assert summary.status_code == 200
+    assert summary.json()["publication_id"] == publication["id"]
+    assert summary.json()["subscriber_count"] == 1
+    assert summary.json()["post_count"] == 1
+    assert summary.json()["recent_revenue_cents"] == 500
 
 
 def test_archived_post_remains_visible_to_owner_only(client: TestClient) -> None:

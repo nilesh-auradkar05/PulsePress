@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
-import { Archive, ArrowLeft, Lock, Pencil, Send } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Archive, ArrowLeft, CreditCard, Gift, Lock, Pencil, Send } from "lucide-react";
 
 import { useAuth } from "../../components/AuthProvider";
-import { api, type PostRead } from "../../lib/api";
+import { api, type Plan, type PostRead } from "../../lib/api";
 import { formatDate, statusLabel } from "../../lib/content";
 
 export default function PostDetail() {
@@ -14,8 +14,12 @@ export default function PostDetail() {
   const router = useRouter();
   const { user } = useAuth();
   const [post, setPost] = useState<PostRead | null>(null);
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [giftAmount, setGiftAmount] = useState("500");
+  const [giftMessage, setGiftMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [commerceNotice, setCommerceNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const postId = params.id;
@@ -50,6 +54,30 @@ export default function PostDetail() {
   }, [postId]);
 
   const isOwner = Boolean(user && post && user.id === post.author_user_id);
+  const paidPlans = useMemo(
+    () => plans.filter((plan) => plan.monthly_price_cents > 0),
+    [plans],
+  );
+
+  useEffect(() => {
+    if (!post || isOwner) {
+      return;
+    }
+
+    let cancelled = false;
+    api
+      .listPlans(post.publication_id)
+      .then((items) => {
+        if (!cancelled) setPlans(items);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Unable to load subscription plans");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOwner, post]);
 
   const publishPost = async () => {
     if (!post) return;
@@ -78,6 +106,51 @@ export default function PostDetail() {
     }
   };
 
+  const subscribeToPlan = async (plan: Plan) => {
+    if (!post) return;
+    setBusy(true);
+    setError(null);
+    setCommerceNotice(null);
+    try {
+      await api.createSubscription({
+        publication_id: post.publication_id,
+        plan_id: plan.id,
+        amount_cents: plan.monthly_price_cents,
+      });
+      await loadPost();
+      setCommerceNotice(`Subscribed to ${plan.name}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to subscribe");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendGift = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!post) return;
+    setBusy(true);
+    setError(null);
+    setCommerceNotice(null);
+    try {
+      const amount = Number.parseInt(giftAmount, 10);
+      const result = await api.sendGift({
+        publication_id: post.publication_id,
+        amount_cents: Number.isFinite(amount) ? amount : 0,
+        message: giftMessage.trim() || null,
+      });
+      setCommerceNotice(
+        `Gift queued. Total charged $${(result.bill.total_charged_cents / 100).toFixed(2)}.`,
+      );
+      setGiftAmount("500");
+      setGiftMessage("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to send gift");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
       <Link href="/home" className="mb-6 inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white">
@@ -88,6 +161,11 @@ export default function PostDetail() {
       {error && (
         <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
           {error}
+        </div>
+      )}
+      {commerceNotice && (
+        <div className="mb-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+          {commerceNotice}
         </div>
       )}
 
@@ -155,8 +233,75 @@ export default function PostDetail() {
                 Paid post
               </div>
               <p className="text-sm text-amber-100/80">
-                The full body is withheld until paid subscriptions are implemented.
+                Subscribe to a paid plan to unlock the full body.
               </p>
+            </div>
+          )}
+
+          {!isOwner && (
+            <div className="mt-8 grid gap-4 border-t border-white/10 pt-6 md:grid-cols-2">
+              <section className="rounded-lg border border-white/10 bg-white/5 p-4">
+                <div className="mb-3 flex items-center gap-2 font-semibold text-white">
+                  <CreditCard size={16} />
+                  Subscribe
+                </div>
+                {paidPlans.length === 0 ? (
+                  <p className="text-sm text-slate-400">No paid plans are available for this publication.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {paidPlans.map((plan) => (
+                      <button
+                        key={plan.id}
+                        type="button"
+                        onClick={() => void subscribeToPlan(plan)}
+                        disabled={busy}
+                        className="flex w-full items-center justify-between rounded-md border border-white/10 bg-slate-950/40 px-3 py-2 text-left text-sm text-slate-200 hover:bg-white/10 disabled:opacity-60"
+                      >
+                        <span>{plan.name}</span>
+                        <span>${(plan.monthly_price_cents / 100).toFixed(2)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <form onSubmit={sendGift} className="rounded-lg border border-white/10 bg-white/5 p-4">
+                <div className="mb-3 flex items-center gap-2 font-semibold text-white">
+                  <Gift size={16} />
+                  Send gift
+                </div>
+                <div className="space-y-3">
+                  <input
+                    type="number"
+                    min="50"
+                    step="1"
+                    value={giftAmount}
+                    onChange={(event) => setGiftAmount(event.target.value)}
+                    className="w-full rounded-md border border-white/10 bg-slate-950/40 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    aria-label="Gift amount cents"
+                  />
+                  <textarea
+                    value={giftMessage}
+                    onChange={(event) => setGiftMessage(event.target.value)}
+                    maxLength={280}
+                    className="min-h-20 w-full rounded-md border border-white/10 bg-slate-950/40 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    placeholder="Optional message"
+                  />
+                  <button
+                    type="submit"
+                    disabled={
+                      busy ||
+                      !giftAmount.trim() ||
+                      Number.isNaN(Number.parseInt(giftAmount, 10)) ||
+                      Number.parseInt(giftAmount, 10) < 50
+                    }
+                    className="inline-flex items-center gap-2 rounded-md bg-violet-600 px-3 py-2 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-60"
+                  >
+                    <Gift size={15} />
+                    {busy ? "Sending..." : "Send gift"}
+                  </button>
+                </div>
+              </form>
             </div>
           )}
         </article>

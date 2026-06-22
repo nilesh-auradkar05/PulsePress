@@ -7,14 +7,24 @@ import re
 import uuid
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
 from app.db.session import get_session
-from app.models import OutboxEvent, Post, PostVersion, Publication, User
+from app.models import (
+    GiftTransaction,
+    OutboxEvent,
+    Post,
+    PostVersion,
+    Publication,
+    Subscription,
+    SubscriptionPlan,
+    User,
+)
 from app.schemas.publishing import (
+    PlanOut,
     PostCreate,
     PostList,
     PostOut,
@@ -25,8 +35,10 @@ from app.schemas.publishing import (
     PublicationDetail,
     PublicationList,
     PublicationOut,
+    PublicationSummary,
     PublicationUpdate,
 )
+from app.services import outbox
 
 router = APIRouter(prefix="/v1", tags=["publishing"])
 
@@ -88,8 +100,46 @@ def _ensure_post_owner(post: Post, user: User) -> None:
         )
 
 
-def _post_read_response(post: Post, user: User) -> PostRead:
-    entitled = post.author_user_id == user.id or post.visibility == "free"
+def _active_plans(db: Session, publication_id: uuid.UUID) -> list[SubscriptionPlan]:
+    return list(
+        db.execute(
+            select(SubscriptionPlan)
+            .where(
+                SubscriptionPlan.publication_id == publication_id,
+                SubscriptionPlan.is_active.is_(True),
+            )
+            .order_by(SubscriptionPlan.monthly_price_cents.asc(), SubscriptionPlan.created_at.asc())
+        ).scalars()
+    )
+
+
+def _has_paid_access(db: Session, post: Post, user: User) -> bool:
+    now = _utcnow()
+    subscriptions = db.execute(
+        select(Subscription).where(
+            Subscription.subscriber_user_id == user.id,
+            Subscription.publication_id == post.publication_id,
+            Subscription.amount_cents > 0,
+            Subscription.status.in_(("active", "canceled")),
+        )
+    ).scalars()
+
+    for subscription in subscriptions:
+        access_until = subscription.access_until or subscription.period_end
+        if subscription.status == "active":
+            if access_until is None or access_until >= now:
+                return True
+        elif access_until is not None and access_until >= now:
+            return True
+    return False
+
+
+def _post_read_response(db: Session, post: Post, user: User) -> PostRead:
+    entitled = (
+        post.author_user_id == user.id
+        or post.visibility == "free"
+        or _has_paid_access(db, post, user)
+    )
     return PostRead(
         id=post.id,
         publication_id=post.publication_id,
@@ -166,7 +216,51 @@ def get_publication(
 ) -> PublicationDetail:
     del current_user
     publication = _get_publication(db, publication_id)
-    return PublicationDetail(**PublicationOut.model_validate(publication).model_dump())
+    return PublicationDetail(
+        **PublicationOut.model_validate(publication).model_dump(),
+        active_plans=[PlanOut.model_validate(plan) for plan in _active_plans(db, publication.id)],
+    )
+
+
+@router.get("/publications/{publication_id}/summary", response_model=PublicationSummary)
+def get_publication_summary(
+    publication_id: uuid.UUID,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> PublicationSummary:
+    del current_user
+    publication = _get_publication(db, publication_id)
+    subscriber_count = db.execute(
+        select(func.count()).select_from(Subscription).where(
+            Subscription.publication_id == publication.id,
+            Subscription.status == "active",
+        )
+    ).scalar_one()
+    post_count = db.execute(
+        select(func.count()).select_from(Post).where(
+            Post.publication_id == publication.id,
+            Post.status == "published",
+        )
+    ).scalar_one()
+    subscription_revenue = db.execute(
+        select(func.coalesce(func.sum(Subscription.amount_cents), 0)).where(
+            Subscription.publication_id == publication.id,
+            Subscription.amount_cents > 0,
+        )
+    ).scalar_one()
+    gift_revenue = db.execute(
+        select(func.coalesce(func.sum(GiftTransaction.amount_cents), 0)).where(
+            GiftTransaction.publication_id == publication.id,
+            GiftTransaction.status.in_(("pending", "processed")),
+        )
+    ).scalar_one()
+    return PublicationSummary(
+        publication_id=publication.id,
+        subscriber_count=subscriber_count,
+        post_count=post_count,
+        recent_revenue_cents=subscription_revenue + gift_revenue,
+        generated_at=_utcnow(),
+    )
 
 
 @router.patch("/publications/{publication_id}", response_model=PublicationOut)
@@ -262,7 +356,7 @@ def get_post(post_id: uuid.UUID, db: DbSession, current_user: CurrentUser) -> Po
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
     if post.status == "draft" and post.author_user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
-    return _post_read_response(post, current_user)
+    return _post_read_response(db, post, current_user)
 
 
 @router.patch("/posts/{post_id}", response_model=PostOut)
@@ -307,6 +401,7 @@ def archive_post(post_id: uuid.UUID, db: DbSession, current_user: CurrentUser) -
 @router.post("/posts/{post_id}/publish", response_model=PostPublishResult)
 def publish_post(
     post_id: uuid.UUID,
+    request: Request,
     db: DbSession,
     current_user: CurrentUser,
 ) -> PostPublishResult:
@@ -351,22 +446,20 @@ def publish_post(
         )
     ).scalar_one_or_none()
     if event_exists is None:
-        db.add(
-            OutboxEvent(
-                aggregate_type="post",
-                aggregate_id=post.id,
-                event_type="post.published",
-                event_version=1,
-                payload={
-                    "post_id": str(post.id),
-                    "publication_id": str(post.publication_id),
-                    "version_id": str(version.id),
-                    "visibility": post.visibility,
-                    "published_at": published_at.isoformat(),
-                },
-                status="pending",
-                publish_attempts=0,
-            )
+        outbox.enqueue_event(
+            db,
+            aggregate_type="post",
+            aggregate_id=post.id,
+            event_type="post.published",
+            correlation_id=getattr(request.state, "correlation_id", "") or "",
+            payload={
+                "post_id": str(post.id),
+                "publication_id": str(post.publication_id),
+                "author_user_id": str(post.author_user_id),
+                "version_id": str(version.id),
+                "visibility": post.visibility,
+                "published_at": published_at.isoformat(),
+            },
         )
 
     db.commit()

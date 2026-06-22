@@ -1,10 +1,9 @@
-"""Smoke test: the worker entrypoint imports and runs without error (S1-T01)."""
+"""Smoke test: the worker entrypoint is importable."""
 
 from __future__ import annotations
 
-from app.main import main
+from pulsepress_worker.main import main
 
 
-def test_main_runs() -> None:
-    # The skeleton main() must complete without raising.
-    main()
+def test_main_is_callable() -> None:
+    assert callable(main)

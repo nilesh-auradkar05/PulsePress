@@ -19,6 +19,11 @@ resource "aws_cloudwatch_log_group" "api" {
   retention_in_days = var.log_retention_days
 }
 
+resource "aws_cloudwatch_log_group" "worker" {
+  name              = "/ecs/${var.name_prefix}-worker"
+  retention_in_days = var.log_retention_days
+}
+
 data "aws_iam_policy_document" "ecs_assume" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -63,6 +68,44 @@ resource "aws_iam_role_policy" "execution_secrets" {
 resource "aws_iam_role" "task" {
   name               = "${var.name_prefix}-api-task"
   assume_role_policy = data.aws_iam_policy_document.ecs_assume.json
+}
+
+resource "aws_iam_role" "worker_execution" {
+  name               = "${var.name_prefix}-worker-exec"
+  assume_role_policy = data.aws_iam_policy_document.ecs_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "worker_execution" {
+  role       = aws_iam_role.worker_execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+resource "aws_iam_role_policy" "worker_execution_secrets" {
+  count = length(var.worker_secret_environment) > 0 ? 1 : 0
+  name  = "${var.name_prefix}-worker-exec-secrets"
+  role  = aws_iam_role.worker_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = values(var.worker_secret_environment)
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role" "worker_task" {
+  name               = "${var.name_prefix}-worker-task"
+  assume_role_policy = data.aws_iam_policy_document.ecs_assume.json
+}
+
+resource "aws_iam_role_policy" "worker_task" {
+  name   = "${var.name_prefix}-worker-runtime"
+  role   = aws_iam_role.worker_task.id
+  policy = var.worker_task_policy
 }
 
 resource "aws_ecs_task_definition" "api" {
@@ -119,5 +162,50 @@ resource "aws_ecs_service" "api" {
     target_group_arn = var.target_group_arn
     container_name   = "api"
     container_port   = var.api_container_port
+  }
+}
+
+resource "aws_ecs_task_definition" "worker" {
+  family                   = "${var.name_prefix}-worker"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = aws_iam_role.worker_execution.arn
+  task_role_arn            = aws_iam_role.worker_task.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "worker"
+      image     = var.worker_image
+      essential = true
+      environment = concat(
+        [{ name = "PULSEPRESS_ENVIRONMENT", value = var.environment_name }],
+        [for key, value in var.worker_environment : { name = key, value = value }],
+      )
+      secrets = [for key, value in var.worker_secret_environment : { name = key, valueFrom = value }]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.worker.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "worker"
+        }
+      }
+    }
+  ])
+}
+
+resource "aws_ecs_service" "worker" {
+  name            = "${var.name_prefix}-worker"
+  cluster         = aws_ecs_cluster.this.id
+  task_definition = aws_ecs_task_definition.worker.arn
+  desired_count   = var.worker_desired_count
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = var.public_subnet_ids
+    security_groups  = [var.service_security_group_id]
+    assign_public_ip = true
   }
 }

@@ -15,12 +15,16 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.cors import CORSMiddleware
 
+from app.api.gifts import router as gifts_router
 from app.api.health import router as health_router
 from app.api.me import router as me_router
+from app.api.plans import router as plans_router
 from app.api.publishing import router as publishing_router
+from app.api.subscriptions import router as subscriptions_router
 from app.core.config import settings
 from app.core.correlation import CorrelationIdMiddleware
 from app.core.problem import http_exception_handler, validation_exception_handler
+from app.services.errors import CommerceError, commerce_error_handler
 
 
 @asynccontextmanager
@@ -38,15 +42,19 @@ def create_app() -> FastAPI:
             CORSMiddleware,
             allow_origins=settings.cors_allowed_origins,
             allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-            allow_headers=["Authorization", "Content-Type", "X-Correlation-Id"],
+            allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Correlation-Id"],
             expose_headers=["X-Correlation-Id"],
         )
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(CommerceError, commerce_error_handler)
 
     app.include_router(health_router)
     app.include_router(me_router)
     app.include_router(publishing_router)
+    app.include_router(plans_router)
+    app.include_router(subscriptions_router)
+    app.include_router(gifts_router)
 
     # The local-dev auth shortcut must never exist in the production surface.
     if settings.is_local:

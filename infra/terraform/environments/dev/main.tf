@@ -93,6 +93,12 @@ module "cognito" {
   domain_prefix = var.cognito_domain_prefix
 }
 
+module "messaging" {
+  source = "../../modules/messaging"
+
+  name_prefix = local.name_prefix
+}
+
 module "ecs" {
   source = "../../modules/ecs"
 
@@ -105,6 +111,8 @@ module "ecs" {
   api_container_port        = 8000
   api_desired_count         = var.api_desired_count
   target_group_arn          = module.alb.target_group_arn
+  worker_image              = "${module.ecr.repository_urls["${var.project}-worker"]}:${var.worker_image_tag}"
+  worker_desired_count      = var.worker_desired_count
 
   extra_environment = {
     PULSEPRESS_COGNITO_ISSUER   = module.cognito.issuer
@@ -114,7 +122,49 @@ module "ecs" {
   secret_environment = {
     PULSEPRESS_DATABASE_URL = aws_secretsmanager_secret.app_database_url.arn
   }
+  worker_environment = {
+    AWS_REGION                           = var.aws_region
+    PULSEPRESS_WORKER_MODE               = "aws"
+    PULSEPRESS_EVENT_BUS_NAME            = module.messaging.event_bus_name
+    PULSEPRESS_WORKER_QUEUE_URL          = module.messaging.worker_queue_url
+    PULSEPRESS_RECEIPT_BUCKET            = module.messaging.receipt_bucket_name
+    PULSEPRESS_WORKER_MAX_RECEIVE_COUNT  = "5"
+    PULSEPRESS_WORKER_EVENT_LOCK_SECONDS = "300"
+    PULSEPRESS_OUTBOX_RETRY_BASE_SECONDS = "5"
+    PULSEPRESS_OUTBOX_MAX_ATTEMPTS       = "10"
+  }
+  worker_secret_environment = {
+    PULSEPRESS_DATABASE_URL = aws_secretsmanager_secret.app_database_url.arn
+  }
+  worker_task_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "PublishDomainEvents"
+        Effect   = "Allow"
+        Action   = ["events:PutEvents"]
+        Resource = module.messaging.event_bus_arn
+      },
+      {
+        Sid    = "ConsumeWorkerQueue"
+        Effect = "Allow"
+        Action = [
+          "sqs:ChangeMessageVisibility",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes",
+          "sqs:ReceiveMessage",
+        ]
+        Resource = module.messaging.worker_queue_arn
+      },
+      {
+        Sid      = "WriteImmutableReceipts"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject"]
+        Resource = "${module.messaging.receipt_bucket_arn}/receipts/*"
+      },
+    ]
+  })
 
   # The ALB listener must exist before the service registers with the target group.
-  depends_on = [module.alb]
+  depends_on = [module.alb, module.messaging]
 }

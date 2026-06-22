@@ -3,3 +3,4 @@ aws_region        = "us-east-1"
 project           = "pulsepress"
 environment       = "dev"
 api_desired_count = 1
+worker_desired_count = 1

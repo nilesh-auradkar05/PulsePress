@@ -6,6 +6,8 @@ Values are overridable via ``PULSEPRESS_*`` environment variables
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,6 +34,13 @@ class Settings(BaseSettings):
     # Browser origins allowed to call the API. Empty by default so non-local
     # deployments must opt into their exact web origins.
     cors_allowed_origins: list[str] = []
+
+    # Money — flat global bill split (SPEC §7.1). Phase 1 has no per-jurisdiction
+    # tax and no per-author rates. Tax is added on top of the price; the platform
+    # fee is deducted from the author's share. Both round half-up to integer cents.
+    platform_fee_pct: Decimal = Decimal("0.10")
+    tax_pct: Decimal = Decimal("0.08")
+    currency: str = "USD"
 
     @property
     def is_local(self) -> bool:

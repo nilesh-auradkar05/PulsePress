@@ -1,4 +1,4 @@
-# PulsePress worker — minimal walking-skeleton image (Sprint 1).
+# PulsePress worker — outbox delivery and ledger processing service.
 FROM python:3.12-slim
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
@@ -13,5 +13,6 @@ COPY pyproject.toml uv.lock* ./
 RUN uv sync --no-dev
 
 COPY app ./app
+COPY pulsepress_worker ./pulsepress_worker
 
-CMD ["uv", "run", "--no-dev", "python", "-m", "app.main"]
+CMD ["uv", "run", "--no-dev", "python", "-m", "pulsepress_worker.main"]

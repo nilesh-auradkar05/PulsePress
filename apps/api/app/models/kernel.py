@@ -42,6 +42,10 @@ class OutboxEvent(UUIDPrimaryKeyMixin, Base):
         DateTime(timezone=True), server_default=func.now(), index=True, nullable=False
     )
     published_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
+    next_attempt_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True
+    )
+    terminal_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class IdempotencyKey(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -66,6 +70,7 @@ class EventProcessingAttempt(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "event_processing_attempts"
     __table_args__ = (
         CheckConstraint(f"status IN {ATTEMPT_STATUSES}", name="status_valid"),
+        UniqueConstraint("event_id", name="event_unique"),
     )
 
     event_id: Mapped[uuid.UUID] = mapped_column(index=True, nullable=False)
@@ -77,3 +82,10 @@ class EventProcessingAttempt(UUIDPrimaryKeyMixin, Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     finished_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
+    # A crashed worker leaves its row in ``started``. A later SQS delivery may
+    # reclaim the event after this lease expires without duplicating durable work.
+    locked_until: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
+    terminal_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
+    failure_event_emitted_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )

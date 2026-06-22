@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import (
+    EventProcessingAttempt,
     IdempotencyKey,
     LedgerEntry,
     LedgerTransaction,
@@ -58,6 +59,8 @@ def test_duplicate_active_subscription_rejected(db: Session) -> None:
             publication_id=pub.id,
             plan_id=plan.id,
             amount_cents=500,
+            charged_amount_cents=500,
+            charged_currency="USD",
             status="active",
         )
     )
@@ -68,6 +71,8 @@ def test_duplicate_active_subscription_rejected(db: Session) -> None:
             publication_id=pub.id,
             plan_id=plan.id,
             amount_cents=500,
+            charged_amount_cents=500,
+            charged_currency="USD",
             status="active",
         )
     )
@@ -84,13 +89,15 @@ def test_canceled_subscription_does_not_trip_partial_unique(db: Session) -> None
     db.add(
         Subscription(
             subscriber_user_id=subscriber.id, publication_id=pub.id,
-            plan_id=plan.id, amount_cents=500, status="canceled",
+            plan_id=plan.id, amount_cents=500, charged_amount_cents=500,
+            charged_currency="USD", status="canceled",
         )
     )
     db.add(
         Subscription(
             subscriber_user_id=subscriber.id, publication_id=pub.id,
-            plan_id=plan.id, amount_cents=500, status="active",
+            plan_id=plan.id, amount_cents=500, charged_amount_cents=500,
+            charged_currency="USD", status="active",
         )
     )
     db.flush()  # must not raise
@@ -153,5 +160,14 @@ def test_idempotency_key_unique_per_user(db: Session) -> None:
     db.add(IdempotencyKey(user_id=user.id, key="k1", request_hash="h"))
     db.flush()
     db.add(IdempotencyKey(user_id=user.id, key="k1", request_hash="h2"))
+    with pytest.raises(IntegrityError):
+        db.flush()
+
+
+def test_event_processing_attempt_unique_per_event(db: Session) -> None:
+    event_id = uuid.uuid4()
+    db.add(EventProcessingAttempt(event_id=event_id, event_type="gift.sent", status="started"))
+    db.flush()
+    db.add(EventProcessingAttempt(event_id=event_id, event_type="gift.sent", status="started"))
     with pytest.raises(IntegrityError):
         db.flush()
