@@ -274,3 +274,9 @@ terraform.rc
 .agents
 .codegraph
 .codex
+
+# --- PulsePress: Archify design diagrams (keep candidates + rendered HTML; drop receipts/review runs) ---
+.archify/**/review-*/
+.archify/**/*.json
+!.archify/**/candidate.json
+.archify/**/*.txt

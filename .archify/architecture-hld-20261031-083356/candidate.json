@@ -1,0 +1,584 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "PulsePress high-level system design",
+    "output": ".archify/architecture-hld-20261031-083356/pulsepress-hld.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/nilesh-auradkar05/PulsePress",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "cdc36327e3d6351f6c875bfc9767f4a8feff9cc7"
+    },
+    "views": [
+      {
+        "id": "commerce",
+        "label": "Commerce write path",
+        "focus": [
+          "users",
+          "web",
+          "alb",
+          "api",
+          "postgres"
+        ],
+        "note": "Idempotency-Key, business row and outbox row commit in one PostgreSQL transaction; the API never touches the ledger."
+      },
+      {
+        "id": "backbone",
+        "label": "Async backbone",
+        "focus": [
+          "postgres",
+          "worker",
+          "eventbridge",
+          "sqs",
+          "worker_dlq",
+          "eb_dlq"
+        ],
+        "note": "Outbox poller publishes then marks; the worker claims a lease per event_id and writes the balanced ledger."
+      },
+      {
+        "id": "realtime",
+        "label": "Artifacts and real-time",
+        "focus": [
+          "worker",
+          "s3",
+          "redis",
+          "api",
+          "web"
+        ],
+        "note": "Write-once receipts and newsletters land in S3; Redis pub/sub feeds SSE (Sprint 5) but is never the source of truth."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "users",
+      "type": "external",
+      "label": "Readers and writers",
+      "sublabel": "browser",
+      "pos": [
+        40,
+        300
+      ],
+      "size": [
+        130,
+        60
+      ]
+    },
+    {
+      "id": "web",
+      "type": "frontend",
+      "label": "Web app",
+      "sublabel": "Next.js + TypeScript",
+      "pos": [
+        230,
+        300
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "apps/web/app/lib/api.ts",
+          "line": 175,
+          "end_line": 194,
+          "label": "API client"
+        }
+      ]
+    },
+    {
+      "id": "cognito",
+      "type": "security",
+      "label": "Cognito",
+      "sublabel": "OAuth2 code + PKCE",
+      "pos": [
+        420,
+        130
+      ],
+      "size": [
+        130,
+        64
+      ],
+      "tag": "JWT RS256",
+      "sources": [
+        {
+          "path": "infra/terraform/modules/cognito/main.tf",
+          "line": 4,
+          "end_line": 38
+        },
+        {
+          "path": "apps/api/app/auth/jwt.py",
+          "line": 24,
+          "end_line": 53,
+          "label": "verification"
+        }
+      ]
+    },
+    {
+      "id": "alb",
+      "type": "cloud",
+      "label": "ALB",
+      "sublabel": "HTTP :80 (TLS pending)",
+      "pos": [
+        420,
+        300
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "infra/terraform/modules/alb/main.tf",
+          "line": 28,
+          "end_line": 62
+        }
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "API service",
+      "sublabel": "FastAPI on ECS Fargate",
+      "pos": [
+        610,
+        300
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "tag": "stateless",
+      "sources": [
+        {
+          "path": "apps/api/app/main.py",
+          "line": 36,
+          "end_line": 65
+        },
+        {
+          "path": "apps/api/app/services/commerce.py",
+          "line": 94,
+          "end_line": 186,
+          "label": "commerce write"
+        }
+      ]
+    },
+    {
+      "id": "postgres",
+      "type": "database",
+      "label": "PostgreSQL",
+      "sublabel": "RDS, 17 tables + outbox",
+      "pos": [
+        820,
+        300
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "tag": "source of truth",
+      "sources": [
+        {
+          "path": "infra/terraform/modules/rds/main.tf",
+          "line": 35,
+          "end_line": 51
+        },
+        {
+          "path": "apps/api/app/models/kernel.py",
+          "line": 27,
+          "end_line": 48,
+          "label": "outbox_events"
+        }
+      ]
+    },
+    {
+      "id": "redis",
+      "type": "database",
+      "label": "Redis",
+      "sublabel": "ElastiCache cache + pub/sub",
+      "pos": [
+        820,
+        130
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "tag": "never truth",
+      "sources": [
+        {
+          "path": "infra/terraform/modules/elasticache/main.tf",
+          "line": 33,
+          "end_line": 43
+        },
+        {
+          "path": "infra/terraform/environments/dev/main.tf",
+          "line": 117,
+          "end_line": 121,
+          "label": "REDIS_URL injected"
+        }
+      ]
+    },
+    {
+      "id": "worker",
+      "type": "backend",
+      "label": "Worker service",
+      "sublabel": "poller + idempotent handlers",
+      "pos": [
+        820,
+        470
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "tag": "ECS Fargate",
+      "sources": [
+        {
+          "path": "apps/worker/pulsepress_worker/main.py",
+          "line": 111,
+          "end_line": 134
+        },
+        {
+          "path": "apps/worker/pulsepress_worker/outbox.py",
+          "line": 58,
+          "end_line": 111,
+          "label": "poller"
+        },
+        {
+          "path": "apps/worker/pulsepress_worker/processor.py",
+          "line": 142,
+          "end_line": 194,
+          "label": "handler"
+        }
+      ]
+    },
+    {
+      "id": "eventbridge",
+      "type": "messagebus",
+      "label": "EventBridge",
+      "sublabel": "custom bus + rule",
+      "pos": [
+        1030,
+        470
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "infra/terraform/modules/messaging/main.tf",
+          "line": 29,
+          "end_line": 58
+        }
+      ]
+    },
+    {
+      "id": "eb_dlq",
+      "type": "messagebus",
+      "label": "EventBridge DLQ",
+      "sublabel": "target delivery failures",
+      "pos": [
+        1240,
+        470
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "infra/terraform/modules/messaging/main.tf",
+          "line": 11,
+          "end_line": 15
+        }
+      ]
+    },
+    {
+      "id": "sqs",
+      "type": "messagebus",
+      "label": "SQS worker queue",
+      "sublabel": "visibility 360 s",
+      "pos": [
+        1030,
+        640
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "infra/terraform/modules/messaging/main.tf",
+          "line": 17,
+          "end_line": 27
+        }
+      ]
+    },
+    {
+      "id": "worker_dlq",
+      "type": "messagebus",
+      "label": "Worker DLQ",
+      "sublabel": "poison messages",
+      "pos": [
+        1240,
+        640
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "infra/terraform/modules/messaging/main.tf",
+          "line": 5,
+          "end_line": 9
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "type": "cloud",
+      "label": "S3 artifacts",
+      "sublabel": "receipts, newsletters",
+      "pos": [
+        610,
+        640
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "tag": "private, versioned",
+      "sources": [
+        {
+          "path": "infra/terraform/modules/messaging/main.tf",
+          "line": 114,
+          "end_line": 151
+        },
+        {
+          "path": "apps/worker/pulsepress_worker/adapters.py",
+          "line": 129,
+          "end_line": 150,
+          "label": "write-once PUT"
+        }
+      ]
+    },
+    {
+      "id": "cloudwatch",
+      "type": "cloud",
+      "label": "CloudWatch",
+      "sublabel": "logs; alarms in S6",
+      "pos": [
+        610,
+        470
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "infra/terraform/modules/ecs/main.tf",
+          "line": 17,
+          "end_line": 25
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "AWS us-east-1 (Terraform environments/dev)",
+      "wraps": [
+        "cognito",
+        "alb",
+        "api",
+        "postgres",
+        "redis",
+        "worker",
+        "eventbridge",
+        "eb_dlq",
+        "sqs",
+        "worker_dlq",
+        "s3",
+        "cloudwatch"
+      ],
+      "pad": 22
+    },
+    {
+      "kind": "security-group",
+      "label": "private subnets: RDS + ElastiCache",
+      "wraps": [
+        "postgres",
+        "redis"
+      ],
+      "pad": 12
+    }
+  ],
+  "connections": [
+    {
+      "id": "users_web",
+      "from": "users",
+      "to": "web",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "id": "web_cognito",
+      "from": "web",
+      "to": "cognito",
+      "label": "hosted UI login",
+      "variant": "security"
+    },
+    {
+      "id": "web_alb",
+      "from": "web",
+      "to": "alb",
+      "label": "REST + SSE, Bearer JWT",
+      "variant": "emphasis"
+    },
+    {
+      "id": "alb_api",
+      "from": "alb",
+      "to": "api",
+      "label": "HTTP :8000",
+      "variant": "emphasis"
+    },
+    {
+      "id": "api_cognito",
+      "from": "api",
+      "to": "cognito",
+      "label": "JWKS verify",
+      "variant": "security"
+    },
+    {
+      "id": "api_postgres",
+      "from": "api",
+      "to": "postgres",
+      "label": "one txn",
+      "variant": "emphasis"
+    },
+    {
+      "id": "api_redis",
+      "from": "api",
+      "to": "redis",
+      "label": "summary cache, SSE subscribe",
+      "variant": "dashed"
+    },
+    {
+      "id": "worker_postgres",
+      "from": "worker",
+      "to": "postgres",
+      "label": "SKIP LOCKED poll, ledger, attempts",
+      "variant": "emphasis"
+    },
+    {
+      "id": "worker_eventbridge",
+      "from": "worker",
+      "to": "eventbridge",
+      "label": "PutEvents",
+      "variant": "emphasis"
+    },
+    {
+      "id": "eventbridge_sqs",
+      "from": "eventbridge",
+      "to": "sqs",
+      "label": "rule by detail-type",
+      "variant": "emphasis"
+    },
+    {
+      "id": "sqs_worker",
+      "from": "sqs",
+      "to": "worker",
+      "label": "receive, delete after commit",
+      "variant": "emphasis"
+    },
+    {
+      "id": "sqs_dlq",
+      "from": "sqs",
+      "to": "worker_dlq",
+      "label": "redrive after 5 receives",
+      "variant": "dashed"
+    },
+    {
+      "id": "eventbridge_dlq",
+      "from": "eventbridge",
+      "to": "eb_dlq",
+      "label": "after 24 retries / 1 h",
+      "variant": "dashed"
+    },
+    {
+      "id": "worker_s3",
+      "from": "worker",
+      "to": "s3",
+      "label": "write-once PUT",
+      "variant": "default"
+    },
+    {
+      "id": "worker_redis",
+      "from": "worker",
+      "to": "redis",
+      "label": "publish after commit",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "right",
+      "via": [
+        [
+          990,
+          500
+        ],
+        [
+          990,
+          160
+        ]
+      ]
+    },
+    {
+      "id": "api_cloudwatch",
+      "from": "api",
+      "to": "cloudwatch",
+      "label": "logs",
+      "variant": "dashed"
+    },
+    {
+      "id": "worker_cloudwatch",
+      "from": "worker",
+      "to": "cloudwatch",
+      "label": "logs",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Two write-shapes, one backbone",
+      "items": [
+        "Commerce writes: Idempotency-Key, atomic outbox row, worker-written ledger.",
+        "Publishing writes: plain CRUD; publishPost is the single event door.",
+        "Both producers feed the same outbox -> EventBridge -> SQS -> worker path."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Exactly-once effects on at-least-once delivery",
+      "items": [
+        "Poller: SELECT FOR UPDATE SKIP LOCKED, publish then mark, backoff, terminal after 10 attempts.",
+        "Worker: durable claim lease per event_id, write-once S3 receipt, single handler transaction, SQS delete only after commit.",
+        "Ledger: one balanced ledger_transactions row + three ledger_entries, UNIQUE(source_type, source_id)."
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Current gaps",
+      "items": [
+        "ALB is HTTP-only; TLS is required before the Cognito browser flow.",
+        "Only 6 of 10 event types are routed today; post.published stays pending until Sprint 5.",
+        "Redis pub/sub, SSE, metrics and alarms are Sprint 5-6 work."
+      ]
+    }
+  ]
+}

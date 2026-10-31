@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "diagram_type": "tree",
+  "meta": {
+    "title": "PulsePress Phase 1 requirements",
+    "output": ".archify/tree-requirements-20261031-083356/pulsepress-requirements.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/nilesh-auradkar05/PulsePress",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "cdc36327e3d6351f6c875bfc9767f4a8feff9cc7"
+    },
+    "views": [
+      { "id": "money", "label": "Money-shaped path", "focus": ["fr_com", "fr_ledger", "fr_async", "nfr_rel", "nfr_cons"], "note": "Commerce writes carry the full reliability treatment: key, outbox, ledger, idempotent worker." },
+      { "id": "content", "label": "Content-shaped path", "focus": ["fr_pub", "fr_news", "fr_rt"], "note": "Plain CRUD except publishPost, the single event door into newsletter fanout and SSE." },
+      { "id": "guardrails", "label": "Guardrails", "focus": ["nfr_sec", "nfr_obs", "nfr_cost", "nfr_maint", "nfr_scope"], "note": "What keeps the portfolio project production-shaped without becoming a payments company." }
+    ]
+  },
+  "layout": { "direction": "right" },
+  "nodes": [
+    { "id": "root", "label": "PulsePress Phase 1", "sublabel": "Substack-style publishing and subscriptions, event-driven, on AWS" },
+
+    { "id": "fr", "label": "Functional requirements", "parent": "root", "sublabel": "What the system must do" },
+    { "id": "nfr", "label": "Non-functional requirements", "parent": "root", "sublabel": "How well it must do it" },
+
+    { "id": "fr_auth", "label": "Identity and auth", "parent": "fr", "sublabel": "Cognito OAuth2 code + PKCE", "sources": [ { "path": "CLAUDE.md", "line": 564, "end_line": 579, "label": "Security rules" } ] },
+    { "id": "fr_auth_1", "label": "Sign in via Cognito hosted UI", "parent": "fr_auth", "sublabel": "ID token as Bearer JWT" },
+    { "id": "fr_auth_2", "label": "Validate every JWT", "parent": "fr_auth", "sublabel": "signature, issuer, audience, exp, token_use" },
+    { "id": "fr_auth_3", "label": "Derived roles", "parent": "fr_auth", "sublabel": "author = owns publication, subscriber = active subscription, admin flag" },
+    { "id": "fr_auth_4", "label": "Local-only auth shortcut", "parent": "fr_auth", "sublabel": "separate router, ENVIRONMENT=local only" },
+
+    { "id": "fr_pub", "label": "Publishing", "parent": "fr", "sublabel": "Content-shaped CRUD, no outbox, no ledger", "sources": [ { "path": "CLAUDE.md", "line": 231, "end_line": 262, "label": "Write-shape rules" } ] },
+    { "id": "fr_pub_1", "label": "Publication create / list / update", "parent": "fr_pub", "sublabel": "unique handle, owner-only mutation" },
+    { "id": "fr_pub_2", "label": "Post lifecycle", "parent": "fr_pub", "sublabel": "draft -> published -> archived (soft delete)" },
+    { "id": "fr_pub_3", "label": "publishPost event door", "parent": "fr_pub", "sublabel": "immutable post_versions snapshot + post.published, once" },
+    { "id": "fr_pub_4", "label": "Paid post gating", "parent": "fr_pub", "sublabel": "body withheld unless owner or entitled subscriber" },
+
+    { "id": "fr_com", "label": "Commerce", "parent": "fr", "sublabel": "Money-shaped writes", "sources": [ { "path": "CLAUDE.md", "line": 207, "end_line": 229, "label": "Commerce write rules" } ] },
+    { "id": "fr_com_1", "label": "Multi-tier plans", "parent": "fr_com", "sublabel": "author-set price, free = 0, open amount above floor" },
+    { "id": "fr_com_2", "label": "Subscribe free or paid", "parent": "fr_com", "sublabel": "Idempotency-Key required, no self-subscribe, one active per publication" },
+    { "id": "fr_com_3", "label": "Change tier and cancel", "parent": "fr_com", "sublabel": "no proration; access kept until period_end" },
+    { "id": "fr_com_4", "label": "One-time gift", "parent": "fr_com", "sublabel": ">= 50 cents, no self-gift" },
+    { "id": "fr_com_5", "label": "Transparent bill", "parent": "fr_com", "sublabel": "author_net + platform_fee + tax = total_charged, integer cents" },
+
+    { "id": "fr_ledger", "label": "Ledger", "parent": "fr", "sublabel": "Balanced, immutable, worker-written", "sources": [ { "path": "CLAUDE.md", "line": 290, "end_line": 310, "label": "Ledger model" } ] },
+    { "id": "fr_ledger_1", "label": "One ledger_transactions row per paid source", "parent": "fr_ledger", "sublabel": "UNIQUE(source_type, source_id), CHECK balance" },
+    { "id": "fr_ledger_2", "label": "Exactly three ledger_entries", "parent": "fr_ledger", "sublabel": "author, platform, tax" },
+    { "id": "fr_ledger_3", "label": "Worker writes what the event says", "parent": "fr_ledger", "sublabel": "never re-derives fee or tax" },
+
+    { "id": "fr_async", "label": "Async backbone", "parent": "fr", "sublabel": "Transactional outbox, EventBridge, SQS, DLQ", "sources": [ { "path": "CLAUDE.md", "line": 311, "end_line": 348, "label": "Event rules" } ] },
+    { "id": "fr_async_1", "label": "Outbox row in the business transaction", "parent": "fr_async", "sublabel": "no dual write" },
+    { "id": "fr_async_2", "label": "10 catalog events, one envelope", "parent": "fr_async", "sublabel": "correlation_id on all, causation_id on worker events" },
+    { "id": "fr_async_3", "label": "Idempotent handlers", "parent": "fr_async", "sublabel": "dedupe by event_id, safe to run twice" },
+    { "id": "fr_async_4", "label": "Dead-letter on exhaustion", "parent": "fr_async", "sublabel": "event.processing.failed signal" },
+
+    { "id": "fr_news", "label": "Newsletter and feed", "parent": "fr", "sublabel": "Simulation, no real email (Sprint 5)" },
+    { "id": "fr_news_1", "label": "Render from the snapshot", "parent": "fr_news", "sublabel": "post_versions, never live posts.body" },
+    { "id": "fr_news_2", "label": "Deterministic recipients", "parent": "fr_news", "sublabel": "free: all active; paid: paid active + canceled with access" },
+    { "id": "fr_news_3", "label": "S3 artifact + user_feed_events", "parent": "fr_news", "sublabel": "durable per-reader feed rows" },
+
+    { "id": "fr_rt", "label": "Real-time dashboard", "parent": "fr", "sublabel": "SSE over Redis pub/sub (Sprint 5)" },
+    { "id": "fr_rt_1", "label": "Publication and user streams", "parent": "fr_rt", "sublabel": "subscriber, revenue, feed updates" },
+    { "id": "fr_rt_2", "label": "Durable replay on reconnect", "parent": "fr_rt", "sublabel": "notification_events / user_feed_events by cursor" },
+
+    { "id": "fr_ops", "label": "Admin operability", "parent": "fr", "sublabel": "Three audited recovery verbs (Sprint 6)", "sources": [ { "path": "CLAUDE.md", "line": 543, "end_line": 563, "label": "Operability rules" } ] },
+    { "id": "fr_ops_1", "label": "retry", "parent": "fr_ops", "sublabel": "safe requeue, no payload change" },
+    { "id": "fr_ops_2", "label": "amend and retry", "parent": "fr_ops", "sublabel": "flag-gated, typed AMEND <event_id> confirmation" },
+    { "id": "fr_ops_3", "label": "discard", "parent": "fr_ops", "sublabel": "reason >= 10 chars, opens reconciliation review" },
+    { "id": "fr_ops_4", "label": "Immutable reconciliation_log", "parent": "fr_ops", "sublabel": "before/after state on every action" },
+
+    { "id": "nfr_rel", "label": "Reliability", "parent": "nfr", "sublabel": "No lost or doubled money effects" },
+    { "id": "nfr_rel_1", "label": "At-least-once delivery, exactly-once effects", "parent": "nfr_rel", "sublabel": "publish-then-mark + idempotent handlers" },
+    { "id": "nfr_rel_2", "label": "Layered idempotency", "parent": "nfr_rel", "sublabel": "API key per user; worker lease per event_id" },
+    { "id": "nfr_rel_3", "label": "Crash-safe artifacts", "parent": "nfr_rel", "sublabel": "write-once S3 PUT before the ledger commit; lease expiry reclaims" },
+    { "id": "nfr_rel_4", "label": "Poison isolation", "parent": "nfr_rel", "sublabel": "worker DLQ after 5 receives; EventBridge target DLQ" },
+
+    { "id": "nfr_cons", "label": "Consistency", "parent": "nfr", "sublabel": "Postgres is the only source of truth" },
+    { "id": "nfr_cons_1", "label": "Atomic business row + idempotency + outbox", "parent": "nfr_cons" },
+    { "id": "nfr_cons_2", "label": "Schema-enforced invariants", "parent": "nfr_cons", "sublabel": "ledger CHECKs, partial unique active subscription, immutability triggers" },
+    { "id": "nfr_cons_3", "label": "Redis is cache and fanout only", "parent": "nfr_cons", "sublabel": "loss degrades the live stream, never the data" },
+
+    { "id": "nfr_scale", "label": "Scalability", "parent": "nfr", "sublabel": "Horizontal by default" },
+    { "id": "nfr_scale_1", "label": "Stateless API tasks behind ALB", "parent": "nfr_scale" },
+    { "id": "nfr_scale_2", "label": "Competing worker consumers", "parent": "nfr_scale", "sublabel": "SKIP LOCKED outbox claims, SQS visibility timeout" },
+    { "id": "nfr_scale_3", "label": "Phase 1 target", "parent": "nfr_scale", "sublabel": "<= 1k users, <= 10k subscribers per publication, 100 req/s peak" },
+
+    { "id": "nfr_perf", "label": "Performance", "parent": "nfr", "sublabel": "Measured by k6 in Sprint 7" },
+    { "id": "nfr_perf_1", "label": "API p95 < 300 ms reads, < 500 ms commerce writes", "parent": "nfr_perf" },
+    { "id": "nfr_perf_2", "label": "Outbox to handler p95 < 5 s", "parent": "nfr_perf" },
+    { "id": "nfr_perf_3", "label": "Fanout to 10k recipients < 30 s", "parent": "nfr_perf" },
+
+    { "id": "nfr_sec", "label": "Security", "parent": "nfr", "sublabel": "Least privilege, private data plane", "sources": [ { "path": "CLAUDE.md", "line": 480, "end_line": 508, "label": "Terraform safety" } ] },
+    { "id": "nfr_sec_1", "label": "RDS and ElastiCache private", "parent": "nfr_sec", "sublabel": "S3 private, TLS-only bucket policy" },
+    { "id": "nfr_sec_2", "label": "Task roles, no static credentials", "parent": "nfr_sec", "sublabel": "secrets via Secrets Manager references" },
+    { "id": "nfr_sec_3", "label": "HTTPS before the browser PKCE flow", "parent": "nfr_sec", "sublabel": "ALB is HTTP-only today" },
+    { "id": "nfr_sec_4", "label": "Authorization guards", "parent": "nfr_sec", "sublabel": "owner-only, subscriber-only, admin-only, no self-pay" },
+
+    { "id": "nfr_obs", "label": "Observability", "parent": "nfr", "sublabel": "CloudWatch + OpenTelemetry (Sprint 6)", "sources": [ { "path": "CLAUDE.md", "line": 509, "end_line": 542, "label": "Observability rules" } ] },
+    { "id": "nfr_obs_1", "label": "Structured JSON logs with correlation_id", "parent": "nfr_obs" },
+    { "id": "nfr_obs_2", "label": "Seven operability metrics, named alarms", "parent": "nfr_obs", "sublabel": "outbox age, DLQ depth, handler failures, p95" },
+    { "id": "nfr_obs_3", "label": "Traces across API, outbox, worker", "parent": "nfr_obs" },
+
+    { "id": "nfr_cost", "label": "Cost and operations", "parent": "nfr", "sublabel": "Portfolio-grade, near-zero at rest" },
+    { "id": "nfr_cost_1", "label": "Scale-to-zero and one-command rebuild", "parent": "nfr_cost", "sublabel": "desired_count 0; terraform destroy to $0" },
+    { "id": "nfr_cost_2", "label": "Terraform only, CI validates, never applies", "parent": "nfr_cost" },
+
+    { "id": "nfr_maint", "label": "Maintainability", "parent": "nfr", "sublabel": "Spec-driven development" },
+    { "id": "nfr_maint_1", "label": "OpenAPI and event catalog are the contracts", "parent": "nfr_maint" },
+    { "id": "nfr_maint_2", "label": "Behavioral tests only, CI gates", "parent": "nfr_maint", "sublabel": "ruff, pyright, pytest, lint, typecheck, build" },
+    { "id": "nfr_maint_3", "label": "Alembic for every schema change", "parent": "nfr_maint", "sublabel": "migrations and docs must be tracked" },
+
+    { "id": "nfr_scope", "label": "Scope limits", "parent": "nfr", "sublabel": "Deliberate non-goals", "sources": [ { "path": "CLAUDE.md", "line": 177, "end_line": 201, "label": "Out of scope" } ] },
+    { "id": "nfr_scope_1", "label": "No real payments, refunds, proration, renewal", "parent": "nfr_scope" },
+    { "id": "nfr_scope_2", "label": "No real email, discovery, engagement", "parent": "nfr_scope", "sublabel": "Phase 2 / Phase 3" },
+    { "id": "nfr_scope_3", "label": "USD only, integer cents, flat percentages", "parent": "nfr_scope" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Why two write-shapes", "items": ["Commerce writes get idempotency, outbox, ledger, and async workers.", "Publishing writes stay plain CRUD; only publishPost emits an event.", "Both producers share one backbone, which is what justifies it."] },
+    { "dot": "amber", "title": "Targets are assumptions", "items": ["Scale and latency numbers are Phase-1 planning targets, not measured results.", "k6 evidence lands in Sprint 7; alarms and traces in Sprint 6."] }
+  ]
+}

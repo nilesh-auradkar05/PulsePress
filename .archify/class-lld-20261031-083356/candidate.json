@@ -1,0 +1,871 @@
+{
+  "schema_version": 1,
+  "diagram_type": "class",
+  "meta": {
+    "title": "PulsePress low-level design: commerce write path and worker",
+    "output": ".archify/class-lld-20261031-083356/pulsepress-lld.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/nilesh-auradkar05/PulsePress",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "cdc36327e3d6351f6c875bfc9767f4a8feff9cc7"
+    },
+    "views": [
+      {
+        "id": "api_write",
+        "label": "API commerce write",
+        "focus": [
+          "svc_commerce",
+          "svc_idempotency",
+          "svc_outbox",
+          "bill"
+        ],
+        "note": "One service function claims the key, computes the bill once, writes row + outbox, records the response, commits."
+      },
+      {
+        "id": "poller",
+        "label": "Outbox poller",
+        "focus": [
+          "outbox_poller",
+          "event_publisher",
+          "local_publisher",
+          "boto3_publisher",
+          "event_envelope"
+        ],
+        "note": "SKIP LOCKED claim, publish-then-mark, exponential backoff, terminal after 10 attempts."
+      },
+      {
+        "id": "handler",
+        "label": "Idempotent handler",
+        "focus": [
+          "sqs_consumer",
+          "queue_client",
+          "boto3_queue",
+          "worker_processor",
+          "worker_bill",
+          "receipt_store",
+          "s3_receipt_store",
+          "fs_receipt_store"
+        ],
+        "note": "Durable claim lease, write-once receipt, then one handler transaction; SQS delete only after commit."
+      }
+    ]
+  },
+  "layout": {
+    "mode": "grid",
+    "typeMaxW": 250,
+    "gapX": 72
+  },
+  "types": [
+    {
+      "id": "svc_idempotency",
+      "label": "services.idempotency",
+      "kind": "class",
+      "sublabel": "API module: key claim and replay",
+      "row": 0,
+      "col": 0,
+      "sources": [
+        {
+          "path": "apps/api/app/services/idempotency.py",
+          "line": 67,
+          "end_line": 111
+        }
+      ],
+      "attributes": [
+        {
+          "name": "MIN_KEY_LENGTH",
+          "type": "int = 16",
+          "static": true
+        },
+        {
+          "name": "LOCK_TTL",
+          "type": "timedelta = 60 s",
+          "static": true
+        }
+      ],
+      "methods": [
+        {
+          "name": "claim",
+          "parameters": "db, user_id, key, request",
+          "returns": "Replay | IdempotencyKey",
+          "visibility": "public"
+        },
+        {
+          "name": "record_response",
+          "parameters": "record, status_code, body",
+          "returns": "None",
+          "visibility": "public"
+        }
+      ]
+    },
+    {
+      "id": "svc_commerce",
+      "label": "services.commerce",
+      "kind": "class",
+      "sublabel": "API module: money-shaped writes",
+      "row": 0,
+      "col": 1,
+      "sources": [
+        {
+          "path": "apps/api/app/services/commerce.py",
+          "line": 94,
+          "end_line": 186,
+          "label": "create_subscription"
+        },
+        {
+          "path": "apps/api/app/services/commerce.py",
+          "line": 308,
+          "end_line": 361,
+          "label": "send_gift"
+        }
+      ],
+      "attributes": [
+        {
+          "name": "SUBSCRIPTION_PERIOD",
+          "type": "timedelta = 30 d",
+          "static": true
+        }
+      ],
+      "methods": [
+        {
+          "name": "create_subscription",
+          "parameters": "db, user, body, key, cid",
+          "returns": "CommerceResult",
+          "visibility": "public"
+        },
+        {
+          "name": "change_tier",
+          "parameters": "db, user, sub_id, body, key, cid",
+          "returns": "CommerceResult",
+          "visibility": "public"
+        },
+        {
+          "name": "cancel_subscription",
+          "parameters": "db, user, sub_id, key, cid",
+          "returns": "CommerceResult",
+          "visibility": "public"
+        },
+        {
+          "name": "send_gift",
+          "parameters": "db, user, body, key, cid",
+          "returns": "CommerceResult",
+          "visibility": "public"
+        }
+      ]
+    },
+    {
+      "id": "svc_outbox",
+      "label": "services.outbox",
+      "kind": "class",
+      "sublabel": "API module: envelope into outbox_events",
+      "row": 0,
+      "col": 2,
+      "sources": [
+        {
+          "path": "apps/api/app/services/outbox.py",
+          "line": 24,
+          "end_line": 59
+        }
+      ],
+      "methods": [
+        {
+          "name": "enqueue_event",
+          "parameters": "db, aggregate, event_type, payload, cid",
+          "returns": "OutboxEvent",
+          "visibility": "public"
+        }
+      ]
+    },
+    {
+      "id": "bill",
+      "label": "Bill",
+      "kind": "record",
+      "sublabel": "domain.money: computed once by the API",
+      "row": 1,
+      "col": 0,
+      "sources": [
+        {
+          "path": "apps/api/app/domain/money.py",
+          "line": 28,
+          "end_line": 45
+        },
+        {
+          "path": "apps/api/app/domain/money.py",
+          "line": 53,
+          "end_line": 80,
+          "label": "compute_bill"
+        }
+      ],
+      "attributes": [
+        {
+          "name": "amount_cents",
+          "type": "int",
+          "visibility": "public"
+        },
+        {
+          "name": "author_net_cents",
+          "type": "int",
+          "visibility": "public"
+        },
+        {
+          "name": "platform_fee_cents",
+          "type": "int",
+          "visibility": "public"
+        },
+        {
+          "name": "tax_cents",
+          "type": "int",
+          "visibility": "public"
+        },
+        {
+          "name": "total_charged_cents",
+          "type": "int",
+          "visibility": "public"
+        }
+      ],
+      "methods": [
+        {
+          "name": "compute_bill",
+          "parameters": "amount_cents",
+          "returns": "Bill",
+          "visibility": "public",
+          "static": true
+        },
+        {
+          "name": "as_dict",
+          "returns": "dict[str, int]",
+          "visibility": "public"
+        }
+      ]
+    },
+    {
+      "id": "event_envelope",
+      "label": "EventEnvelope",
+      "kind": "record",
+      "sublabel": "Catalog envelope parser and builder",
+      "row": 1,
+      "col": 1,
+      "sources": [
+        {
+          "path": "apps/worker/pulsepress_worker/events.py",
+          "line": 40,
+          "end_line": 115
+        },
+        {
+          "path": "apps/worker/pulsepress_worker/events.py",
+          "line": 143,
+          "end_line": 163,
+          "label": "worker_event"
+        }
+      ],
+      "attributes": [
+        {
+          "name": "event_id",
+          "type": "UUID",
+          "visibility": "public"
+        },
+        {
+          "name": "event_type",
+          "type": "str",
+          "visibility": "public"
+        },
+        {
+          "name": "event_version",
+          "type": "int",
+          "visibility": "public"
+        },
+        {
+          "name": "correlation_id",
+          "type": "str",
+          "visibility": "public"
+        },
+        {
+          "name": "causation_id",
+          "type": "UUID | None",
+          "visibility": "public"
+        },
+        {
+          "name": "payload",
+          "type": "dict",
+          "visibility": "public"
+        }
+      ],
+      "methods": [
+        {
+          "name": "from_mapping",
+          "parameters": "value",
+          "returns": "EventEnvelope",
+          "visibility": "public",
+          "static": true
+        },
+        {
+          "name": "malformed_from",
+          "parameters": "value, error",
+          "returns": "EventEnvelope",
+          "visibility": "public",
+          "static": true
+        },
+        {
+          "name": "as_dict",
+          "returns": "dict",
+          "visibility": "public"
+        }
+      ]
+    },
+    {
+      "id": "worker_bill",
+      "label": "_Bill",
+      "kind": "record",
+      "sublabel": "Worker copy of the event bill; validated, never recomputed",
+      "row": 1,
+      "col": 2,
+      "sources": [
+        {
+          "path": "apps/worker/pulsepress_worker/processor.py",
+          "line": 54,
+          "end_line": 92
+        }
+      ],
+      "attributes": [
+        {
+          "name": "principal_amount_cents",
+          "type": "int",
+          "visibility": "public"
+        },
+        {
+          "name": "author_net_cents",
+          "type": "int",
+          "visibility": "public"
+        },
+        {
+          "name": "platform_fee_cents",
+          "type": "int",
+          "visibility": "public"
+        },
+        {
+          "name": "tax_cents",
+          "type": "int",
+          "visibility": "public"
+        },
+        {
+          "name": "total_charged_cents",
+          "type": "int",
+          "visibility": "public"
+        }
+      ],
+      "methods": [
+        {
+          "name": "from_payload",
+          "parameters": "payload",
+          "returns": "_Bill",
+          "visibility": "public",
+          "static": true
+        }
+      ]
+    },
+    {
+      "id": "fs_receipt_store",
+      "label": "FilesystemReceiptStore",
+      "kind": "class",
+      "sublabel": "Local mode: open(\"x\") write-once",
+      "row": 1,
+      "col": 3,
+      "sources": [
+        {
+          "path": "apps/worker/pulsepress_worker/adapters.py",
+          "line": 104,
+          "end_line": 126
+        }
+      ],
+      "methods": [
+        {
+          "name": "put_receipt",
+          "parameters": "key, contents",
+          "returns": "str",
+          "visibility": "public"
+        }
+      ]
+    },
+    {
+      "id": "outbox_poller",
+      "label": "OutboxPoller",
+      "kind": "class",
+      "sublabel": "Publish-then-mark with SKIP LOCKED",
+      "row": 2,
+      "col": 0,
+      "sources": [
+        {
+          "path": "apps/worker/pulsepress_worker/outbox.py",
+          "line": 34,
+          "end_line": 120
+        },
+        {
+          "path": "apps/worker/pulsepress_worker/outbox.py",
+          "line": 123,
+          "end_line": 136,
+          "label": "enqueue_worker_event"
+        }
+      ],
+      "attributes": [
+        {
+          "name": "_batch_size",
+          "type": "int = 25",
+          "visibility": "private"
+        },
+        {
+          "name": "_retry_base_seconds",
+          "type": "int = 5",
+          "visibility": "private"
+        },
+        {
+          "name": "_max_attempts",
+          "type": "int = 10",
+          "visibility": "private"
+        }
+      ],
+      "methods": [
+        {
+          "name": "poll_once",
+          "returns": "PollResult",
+          "visibility": "public"
+        },
+        {
+          "name": "_retry_delay_seconds",
+          "parameters": "attempt_number",
+          "returns": "int",
+          "visibility": "private"
+        }
+      ]
+    },
+    {
+      "id": "event_publisher",
+      "label": "EventPublisher",
+      "kind": "interface",
+      "sublabel": "Protocol",
+      "row": 2,
+      "col": 1,
+      "sources": [
+        {
+          "path": "apps/worker/pulsepress_worker/adapters.py",
+          "line": 27,
+          "end_line": 28
+        }
+      ],
+      "methods": [
+        {
+          "name": "publish",
+          "parameters": "event: EventEnvelope",
+          "returns": "None",
+          "visibility": "public",
+          "abstract": true
+        }
+      ]
+    },
+    {
+      "id": "worker_processor",
+      "label": "WorkerProcessor",
+      "kind": "class",
+      "sublabel": "Claim lease, receipt, one handler transaction",
+      "row": 2,
+      "col": 2,
+      "sources": [
+        {
+          "path": "apps/worker/pulsepress_worker/processor.py",
+          "line": 110,
+          "end_line": 194
+        },
+        {
+          "path": "apps/worker/pulsepress_worker/processor.py",
+          "line": 196,
+          "end_line": 235,
+          "label": "_claim"
+        },
+        {
+          "path": "apps/worker/pulsepress_worker/processor.py",
+          "line": 410,
+          "end_line": 496,
+          "label": "_write_ledger"
+        }
+      ],
+      "attributes": [
+        {
+          "name": "_event_lock_seconds",
+          "type": "int = 300",
+          "visibility": "private"
+        },
+        {
+          "name": "_max_event_attempts",
+          "type": "int = 5",
+          "visibility": "private"
+        }
+      ],
+      "methods": [
+        {
+          "name": "process_mapping",
+          "parameters": "value",
+          "returns": "ProcessResult",
+          "visibility": "public"
+        },
+        {
+          "name": "_claim",
+          "parameters": "event",
+          "returns": "_Claim | str",
+          "visibility": "private"
+        },
+        {
+          "name": "_prepare_receipt",
+          "parameters": "event",
+          "returns": "_Receipt | None",
+          "visibility": "private"
+        },
+        {
+          "name": "_dispatch",
+          "parameters": "db, event, key",
+          "returns": "None",
+          "visibility": "private"
+        },
+        {
+          "name": "_write_ledger",
+          "parameters": "db, event, source, bill, key",
+          "returns": "bool",
+          "visibility": "private"
+        },
+        {
+          "name": "_record_failure",
+          "parameters": "event, claim, error, terminal",
+          "returns": "None",
+          "visibility": "private"
+        }
+      ]
+    },
+    {
+      "id": "receipt_store",
+      "label": "ReceiptStore",
+      "kind": "interface",
+      "sublabel": "Protocol: write-once artifact",
+      "row": 2,
+      "col": 3,
+      "sources": [
+        {
+          "path": "apps/worker/pulsepress_worker/adapters.py",
+          "line": 31,
+          "end_line": 32
+        }
+      ],
+      "methods": [
+        {
+          "name": "put_receipt",
+          "parameters": "key, contents",
+          "returns": "str",
+          "visibility": "public",
+          "abstract": true
+        }
+      ]
+    },
+    {
+      "id": "local_publisher",
+      "label": "LocalEventBridgePublisher",
+      "kind": "class",
+      "sublabel": "Captures envelopes in memory",
+      "row": 3,
+      "col": 0,
+      "sources": [
+        {
+          "path": "apps/worker/pulsepress_worker/adapters.py",
+          "line": 48,
+          "end_line": 55
+        }
+      ],
+      "attributes": [
+        {
+          "name": "published",
+          "type": "list[EventEnvelope]",
+          "visibility": "public"
+        }
+      ],
+      "methods": [
+        {
+          "name": "publish",
+          "parameters": "event",
+          "returns": "None",
+          "visibility": "public"
+        }
+      ]
+    },
+    {
+      "id": "boto3_publisher",
+      "label": "Boto3EventBridgePublisher",
+      "kind": "class",
+      "sublabel": "PutEvents; raises on FailedEntryCount",
+      "row": 3,
+      "col": 1,
+      "sources": [
+        {
+          "path": "apps/worker/pulsepress_worker/adapters.py",
+          "line": 58,
+          "end_line": 84
+        }
+      ],
+      "attributes": [
+        {
+          "name": "_event_bus_name",
+          "type": "str",
+          "visibility": "private"
+        }
+      ],
+      "methods": [
+        {
+          "name": "publish",
+          "parameters": "event",
+          "returns": "None",
+          "visibility": "public"
+        }
+      ]
+    },
+    {
+      "id": "sqs_consumer",
+      "label": "SqsConsumer",
+      "kind": "class",
+      "sublabel": "Delete only after a durable success",
+      "row": 3,
+      "col": 2,
+      "sources": [
+        {
+          "path": "apps/worker/pulsepress_worker/queue.py",
+          "line": 22,
+          "end_line": 56
+        }
+      ],
+      "methods": [
+        {
+          "name": "consume_once",
+          "returns": "ConsumeResult",
+          "visibility": "public"
+        }
+      ]
+    },
+    {
+      "id": "s3_receipt_store",
+      "label": "S3ReceiptStore",
+      "kind": "class",
+      "sublabel": "PUT with IfNoneMatch *; equal bytes tolerated",
+      "row": 3,
+      "col": 3,
+      "sources": [
+        {
+          "path": "apps/worker/pulsepress_worker/adapters.py",
+          "line": 129,
+          "end_line": 162
+        }
+      ],
+      "attributes": [
+        {
+          "name": "_bucket",
+          "type": "str",
+          "visibility": "private"
+        }
+      ],
+      "methods": [
+        {
+          "name": "put_receipt",
+          "parameters": "key, contents",
+          "returns": "str",
+          "visibility": "public"
+        }
+      ]
+    },
+    {
+      "id": "queue_client",
+      "label": "QueueClient",
+      "kind": "interface",
+      "sublabel": "Protocol",
+      "row": 4,
+      "col": 2,
+      "sources": [
+        {
+          "path": "apps/worker/pulsepress_worker/adapters.py",
+          "line": 42,
+          "end_line": 45
+        }
+      ],
+      "methods": [
+        {
+          "name": "receive",
+          "parameters": "max_messages",
+          "returns": "Iterable[QueueMessage]",
+          "visibility": "public",
+          "abstract": true
+        },
+        {
+          "name": "delete",
+          "parameters": "message",
+          "returns": "None",
+          "visibility": "public",
+          "abstract": true
+        }
+      ]
+    },
+    {
+      "id": "boto3_queue",
+      "label": "Boto3SqsQueue",
+      "kind": "class",
+      "sublabel": "Long-poll 10 s; unwraps EventBridge detail",
+      "row": 5,
+      "col": 2,
+      "sources": [
+        {
+          "path": "apps/worker/pulsepress_worker/adapters.py",
+          "line": 165,
+          "end_line": 195
+        }
+      ],
+      "methods": [
+        {
+          "name": "receive",
+          "parameters": "max_messages",
+          "returns": "Iterable[QueueMessage]",
+          "visibility": "public"
+        },
+        {
+          "name": "delete",
+          "parameters": "message",
+          "returns": "None",
+          "visibility": "public"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "id": "commerce_claims",
+      "from": "svc_commerce",
+      "to": "svc_idempotency",
+      "kind": "dependency",
+      "label": "claim key",
+      "labelDy": -96
+    },
+    {
+      "id": "commerce_enqueues",
+      "from": "svc_commerce",
+      "to": "svc_outbox",
+      "kind": "dependency",
+      "label": "enqueue_event"
+    },
+    {
+      "id": "commerce_bills",
+      "from": "svc_commerce",
+      "to": "bill",
+      "kind": "dependency",
+      "label": "compute_bill once"
+    },
+    {
+      "id": "poller_publishes",
+      "from": "outbox_poller",
+      "to": "event_publisher",
+      "kind": "association",
+      "label": "publish(envelope)"
+    },
+    {
+      "id": "poller_parses",
+      "from": "outbox_poller",
+      "to": "event_envelope",
+      "kind": "dependency",
+      "label": "from_mapping(payload)"
+    },
+    {
+      "id": "local_realizes",
+      "from": "local_publisher",
+      "to": "event_publisher",
+      "kind": "realization"
+    },
+    {
+      "id": "boto3_realizes",
+      "from": "boto3_publisher",
+      "to": "event_publisher",
+      "kind": "realization"
+    },
+    {
+      "id": "processor_parses",
+      "from": "worker_processor",
+      "to": "event_envelope",
+      "kind": "dependency",
+      "label": "from_mapping / worker_event"
+    },
+    {
+      "id": "processor_bill",
+      "from": "worker_processor",
+      "to": "worker_bill",
+      "kind": "dependency",
+      "label": "validate invariants"
+    },
+    {
+      "id": "processor_receipts",
+      "from": "worker_processor",
+      "to": "receipt_store",
+      "kind": "association",
+      "label": "put_receipt",
+      "labelDy": -39
+    },
+    {
+      "id": "s3_realizes",
+      "from": "s3_receipt_store",
+      "to": "receipt_store",
+      "kind": "realization"
+    },
+    {
+      "id": "fs_realizes",
+      "from": "fs_receipt_store",
+      "to": "receipt_store",
+      "kind": "realization"
+    },
+    {
+      "id": "consumer_processor",
+      "from": "sqs_consumer",
+      "to": "worker_processor",
+      "kind": "association",
+      "label": "process_mapping(body)"
+    },
+    {
+      "id": "consumer_queue",
+      "from": "sqs_consumer",
+      "to": "queue_client",
+      "kind": "association",
+      "label": "receive / delete"
+    },
+    {
+      "id": "boto3_queue_realizes",
+      "from": "boto3_queue",
+      "to": "queue_client",
+      "kind": "realization"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Write path contract",
+      "items": [
+        "Every commerce function: claim key -> validate -> business row -> outbox envelope -> record response -> commit, in one session.",
+        "A failed request rolls the idempotency row back with the transaction, so a retry can still succeed.",
+        "The API never writes ledger rows; the bill travels inside the event payload."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Handler contract",
+      "items": [
+        "_claim commits a lease (locked_until = now + 300 s) before any side effect; a concurrent delivery raises EventInProgressError and the SQS message is left alone.",
+        "The receipt is stored write-once before the handler transaction; ledger + stats + derived outbox row + attempt=succeeded commit together.",
+        "Terminal failure uses the durable attempt_number (>= 5), never the SQS receive count."
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Modules drawn as types",
+      "items": [
+        "services.commerce, services.idempotency and services.outbox are Python modules of functions, drawn as types to show the call structure.",
+        "Replay, CommerceResult, _Claim, _SourceEvent, _Receipt, ProcessResult, PollResult and ConsumeResult are small frozen dataclasses omitted for space."
+      ]
+    }
+  ]
+}

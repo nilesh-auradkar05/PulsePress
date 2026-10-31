@@ -1,0 +1,1300 @@
+{
+  "schema_version": 1,
+  "diagram_type": "erd",
+  "meta": {
+    "title": "PulsePress data model (17 tables)",
+    "output": ".archify/erd-data-model-20261031-083356/pulsepress-data-model.html",
+    "quality_profile": "standard",
+    "repository": {
+      "url": "https://github.com/nilesh-auradkar05/PulsePress",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "cdc36327e3d6351f6c875bfc9767f4a8feff9cc7"
+    },
+    "views": [
+      {
+        "id": "money",
+        "label": "Money path",
+        "focus": [
+          "subscription_plans",
+          "subscriptions",
+          "gift_transactions",
+          "ledger_transactions",
+          "ledger_entries"
+        ],
+        "note": "A paid subscription or gift yields exactly one balanced ledger transaction and three entries."
+      },
+      {
+        "id": "kernel",
+        "label": "Reliability kernel",
+        "focus": [
+          "outbox_events",
+          "idempotency_keys",
+          "event_processing_attempts"
+        ],
+        "note": "Outbox rows commit with the business row; attempts dedupe by event_id with a lease."
+      },
+      {
+        "id": "publishing",
+        "label": "Publishing",
+        "focus": [
+          "publications",
+          "posts",
+          "post_versions",
+          "newsletter_sends",
+          "user_feed_events"
+        ],
+        "note": "The newsletter renders from the immutable snapshot, never the mutable post."
+      }
+    ],
+    "legend": {
+      "mode": "hidden"
+    }
+  },
+  "layout": {
+    "mode": "grid",
+    "gapX": 72,
+    "gapY": 56
+  },
+  "entities": [
+    {
+      "id": "users",
+      "label": "users",
+      "tag": "identity + publishing",
+      "row": 0,
+      "col": 0,
+      "sources": [
+        {
+          "path": "apps/api/app/models/identity.py",
+          "line": 11,
+          "end_line": 17
+        },
+        {
+          "path": "apps/api/app/db/base.py",
+          "line": 28,
+          "end_line": 41,
+          "label": "id + timestamps"
+        }
+      ],
+      "attributes": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "key": "pk"
+        },
+        {
+          "name": "cognito_sub",
+          "type": "varchar(255)",
+          "key": "uk"
+        },
+        {
+          "name": "email",
+          "type": "varchar(320)"
+        },
+        {
+          "name": "display_name",
+          "type": "varchar(255)"
+        },
+        {
+          "name": "is_admin",
+          "type": "boolean"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamptz"
+        }
+      ]
+    },
+    {
+      "id": "publications",
+      "label": "publications",
+      "tag": "identity + publishing",
+      "row": 1,
+      "col": 0,
+      "sources": [
+        {
+          "path": "apps/api/app/models/publishing.py",
+          "line": 26,
+          "end_line": 36
+        }
+      ],
+      "attributes": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "key": "pk"
+        },
+        {
+          "name": "owner_user_id",
+          "type": "uuid",
+          "key": "fk",
+          "references": "users.id"
+        },
+        {
+          "name": "handle",
+          "type": "varchar(64)",
+          "key": "uk"
+        },
+        {
+          "name": "name",
+          "type": "varchar(255)"
+        },
+        {
+          "name": "description",
+          "type": "text"
+        },
+        {
+          "name": "avatar_url",
+          "type": "varchar(1024)"
+        },
+        {
+          "name": "is_active",
+          "type": "boolean"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamptz"
+        }
+      ]
+    },
+    {
+      "id": "posts",
+      "label": "posts",
+      "tag": "identity + publishing",
+      "row": 2,
+      "col": 0,
+      "sources": [
+        {
+          "path": "apps/api/app/models/publishing.py",
+          "line": 39,
+          "end_line": 62
+        }
+      ],
+      "attributes": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "key": "pk"
+        },
+        {
+          "name": "publication_id",
+          "type": "uuid",
+          "key": "fk",
+          "references": "publications.id"
+        },
+        {
+          "name": "author_user_id",
+          "type": "uuid",
+          "key": "fk",
+          "references": "users.id"
+        },
+        {
+          "name": "title",
+          "type": "varchar(512)"
+        },
+        {
+          "name": "slug",
+          "type": "varchar(512)"
+        },
+        {
+          "name": "body",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "varchar(16)"
+        },
+        {
+          "name": "visibility",
+          "type": "varchar(16)"
+        },
+        {
+          "name": "published_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "archived_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamptz"
+        }
+      ],
+      "sublabel": "status draft|published|archived; visibility free|paid"
+    },
+    {
+      "id": "post_versions",
+      "label": "post_versions",
+      "sublabel": "immutable snapshot",
+      "tag": "identity + publishing",
+      "row": 3,
+      "col": 0,
+      "sources": [
+        {
+          "path": "apps/api/app/models/publishing.py",
+          "line": 65,
+          "end_line": 78
+        },
+        {
+          "path": "apps/api/app/db/immutable.py",
+          "line": 15,
+          "end_line": 20,
+          "label": "immutable tables"
+        }
+      ],
+      "attributes": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "key": "pk"
+        },
+        {
+          "name": "post_id",
+          "type": "uuid",
+          "key": "fk",
+          "references": "posts.id"
+        },
+        {
+          "name": "title",
+          "type": "varchar(512)"
+        },
+        {
+          "name": "body",
+          "type": "text"
+        },
+        {
+          "name": "visibility",
+          "type": "varchar(16)"
+        },
+        {
+          "name": "snapshotted_at",
+          "type": "timestamptz"
+        }
+      ]
+    },
+    {
+      "id": "newsletter_sends",
+      "label": "newsletter_sends",
+      "tag": "identity + publishing",
+      "row": 4,
+      "col": 0,
+      "sources": [
+        {
+          "path": "apps/api/app/models/publishing.py",
+          "line": 81,
+          "end_line": 99
+        }
+      ],
+      "attributes": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "key": "pk"
+        },
+        {
+          "name": "post_id",
+          "type": "uuid",
+          "key": "fk",
+          "references": "posts.id"
+        },
+        {
+          "name": "publication_id",
+          "type": "uuid",
+          "key": "fk",
+          "references": "publications.id"
+        },
+        {
+          "name": "status",
+          "type": "varchar(16)"
+        },
+        {
+          "name": "recipient_count_sim",
+          "type": "bigint"
+        },
+        {
+          "name": "artifact_s3_key",
+          "type": "varchar(1024)"
+        },
+        {
+          "name": "sent_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        }
+      ],
+      "sublabel": "status requested|sent|failed",
+      "width": 250
+    },
+    {
+      "id": "subscription_plans",
+      "label": "subscription_plans",
+      "tag": "commerce",
+      "row": 1,
+      "col": 1,
+      "sources": [
+        {
+          "path": "apps/api/app/models/commerce.py",
+          "line": 32,
+          "end_line": 43
+        }
+      ],
+      "attributes": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "key": "pk"
+        },
+        {
+          "name": "publication_id",
+          "type": "uuid",
+          "key": "fk",
+          "references": "publications.id"
+        },
+        {
+          "name": "name",
+          "type": "varchar(255)"
+        },
+        {
+          "name": "monthly_price_cents",
+          "type": "bigint"
+        },
+        {
+          "name": "currency",
+          "type": "varchar(3)"
+        },
+        {
+          "name": "allow_open_amount",
+          "type": "boolean"
+        },
+        {
+          "name": "benefits",
+          "type": "jsonb"
+        },
+        {
+          "name": "is_active",
+          "type": "boolean"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamptz"
+        }
+      ],
+      "sublabel": "monthly_price_cents 0 = free tier"
+    },
+    {
+      "id": "subscriptions",
+      "label": "subscriptions",
+      "sublabel": "one active per (subscriber, publication); status active|canceled|expired; charged_* = creation snapshot",
+      "tag": "commerce",
+      "row": 2,
+      "col": 1,
+      "sources": [
+        {
+          "path": "apps/api/app/models/commerce.py",
+          "line": 46,
+          "end_line": 78
+        }
+      ],
+      "attributes": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "key": "pk"
+        },
+        {
+          "name": "subscriber_user_id",
+          "type": "uuid",
+          "key": "fk",
+          "references": "users.id"
+        },
+        {
+          "name": "publication_id",
+          "type": "uuid",
+          "key": "fk",
+          "references": "publications.id"
+        },
+        {
+          "name": "plan_id",
+          "type": "uuid",
+          "key": "fk",
+          "references": "subscription_plans.id"
+        },
+        {
+          "name": "amount_cents",
+          "type": "bigint"
+        },
+        {
+          "name": "charged_amount_cents",
+          "type": "bigint"
+        },
+        {
+          "name": "charged_currency",
+          "type": "varchar(3)"
+        },
+        {
+          "name": "status",
+          "type": "varchar(16)"
+        },
+        {
+          "name": "period_start",
+          "type": "timestamptz"
+        },
+        {
+          "name": "period_end",
+          "type": "timestamptz"
+        },
+        {
+          "name": "canceled_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "access_until",
+          "type": "timestamptz"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamptz"
+        }
+      ],
+      "width": 250
+    },
+    {
+      "id": "gift_transactions",
+      "label": "gift_transactions",
+      "sublabel": "CHECK amount_cents >= 50; status pending|processed|failed",
+      "tag": "commerce",
+      "row": 3,
+      "col": 1,
+      "sources": [
+        {
+          "path": "apps/api/app/models/commerce.py",
+          "line": 81,
+          "end_line": 97
+        }
+      ],
+      "attributes": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "key": "pk"
+        },
+        {
+          "name": "sender_user_id",
+          "type": "uuid",
+          "key": "fk",
+          "references": "users.id"
+        },
+        {
+          "name": "publication_id",
+          "type": "uuid",
+          "key": "fk",
+          "references": "publications.id"
+        },
+        {
+          "name": "amount_cents",
+          "type": "bigint"
+        },
+        {
+          "name": "currency",
+          "type": "varchar(3)"
+        },
+        {
+          "name": "message",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "varchar(16)"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamptz"
+        }
+      ]
+    },
+    {
+      "id": "ledger_transactions",
+      "label": "ledger_transactions",
+      "sublabel": "immutable; CHECK net+fee+tax = total and principal+tax = total; source_id polymorphic",
+      "tag": "ledger",
+      "row": 4,
+      "col": 1,
+      "sources": [
+        {
+          "path": "apps/api/app/models/commerce.py",
+          "line": 100,
+          "end_line": 131
+        }
+      ],
+      "attributes": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "key": "pk"
+        },
+        {
+          "name": "publication_id",
+          "type": "uuid",
+          "key": "fk",
+          "references": "publications.id"
+        },
+        {
+          "name": "source_type",
+          "type": "varchar(16)",
+          "key": "uk"
+        },
+        {
+          "name": "source_id",
+          "type": "uuid",
+          "key": "uk"
+        },
+        {
+          "name": "source_event_id",
+          "type": "uuid"
+        },
+        {
+          "name": "principal_amount_cents",
+          "type": "bigint"
+        },
+        {
+          "name": "author_net_cents",
+          "type": "bigint"
+        },
+        {
+          "name": "platform_fee_cents",
+          "type": "bigint"
+        },
+        {
+          "name": "tax_cents",
+          "type": "bigint"
+        },
+        {
+          "name": "total_charged_cents",
+          "type": "bigint"
+        },
+        {
+          "name": "currency",
+          "type": "varchar(3)"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        }
+      ],
+      "width": 250
+    },
+    {
+      "id": "ledger_entries",
+      "label": "ledger_entries",
+      "sublabel": "immutable; exactly three rows: author|platform|tax, direction credit",
+      "tag": "ledger",
+      "row": 4,
+      "col": 2,
+      "sources": [
+        {
+          "path": "apps/api/app/models/commerce.py",
+          "line": 134,
+          "end_line": 155
+        }
+      ],
+      "attributes": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "key": "pk"
+        },
+        {
+          "name": "ledger_transaction_id",
+          "type": "uuid",
+          "key": [
+            "fk",
+            "uk"
+          ],
+          "references": "ledger_transactions.id"
+        },
+        {
+          "name": "publication_id",
+          "type": "uuid",
+          "key": "fk",
+          "references": "publications.id"
+        },
+        {
+          "name": "account",
+          "type": "varchar(16)",
+          "key": "uk"
+        },
+        {
+          "name": "amount_cents",
+          "type": "bigint"
+        },
+        {
+          "name": "direction",
+          "type": "varchar(8)"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        }
+      ],
+      "width": 250
+    },
+    {
+      "id": "outbox_events",
+      "label": "outbox_events",
+      "sublabel": "payload = full envelope; status pending|published|failed|superseded|discarded",
+      "tag": "reliability kernel",
+      "row": 1,
+      "col": 2,
+      "sources": [
+        {
+          "path": "apps/api/app/models/kernel.py",
+          "line": 27,
+          "end_line": 48
+        }
+      ],
+      "attributes": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "key": "pk"
+        },
+        {
+          "name": "aggregate_type",
+          "type": "varchar(64)"
+        },
+        {
+          "name": "aggregate_id",
+          "type": "uuid"
+        },
+        {
+          "name": "event_type",
+          "type": "varchar(128)"
+        },
+        {
+          "name": "event_version",
+          "type": "integer"
+        },
+        {
+          "name": "payload",
+          "type": "jsonb"
+        },
+        {
+          "name": "status",
+          "type": "varchar(16)"
+        },
+        {
+          "name": "publish_attempts",
+          "type": "integer"
+        },
+        {
+          "name": "last_error",
+          "type": "text"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "published_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "next_attempt_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "terminal_at",
+          "type": "timestamptz"
+        }
+      ]
+    },
+    {
+      "id": "idempotency_keys",
+      "label": "idempotency_keys",
+      "sublabel": "UNIQUE(user_id, key); request_hash = sha256 of canonical body",
+      "tag": "reliability kernel",
+      "row": 2,
+      "col": 2,
+      "sources": [
+        {
+          "path": "apps/api/app/models/kernel.py",
+          "line": 51,
+          "end_line": 64
+        }
+      ],
+      "attributes": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "key": "pk"
+        },
+        {
+          "name": "user_id",
+          "type": "uuid",
+          "key": [
+            "fk",
+            "uk"
+          ],
+          "references": "users.id"
+        },
+        {
+          "name": "key",
+          "type": "varchar(255)",
+          "key": "uk"
+        },
+        {
+          "name": "request_hash",
+          "type": "varchar(64)"
+        },
+        {
+          "name": "response_status",
+          "type": "integer"
+        },
+        {
+          "name": "response_body",
+          "type": "jsonb"
+        },
+        {
+          "name": "locked_until",
+          "type": "timestamptz"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamptz"
+        }
+      ],
+      "width": 250
+    },
+    {
+      "id": "event_processing_attempts",
+      "label": "event_processing_attempts",
+      "sublabel": "worker lease per event_id; status started|succeeded|failed",
+      "tag": "reliability kernel",
+      "row": 3,
+      "col": 2,
+      "sources": [
+        {
+          "path": "apps/api/app/models/kernel.py",
+          "line": 67,
+          "end_line": 91
+        }
+      ],
+      "attributes": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "key": "pk"
+        },
+        {
+          "name": "event_id",
+          "type": "uuid",
+          "key": "uk"
+        },
+        {
+          "name": "event_type",
+          "type": "varchar(128)"
+        },
+        {
+          "name": "status",
+          "type": "varchar(16)"
+        },
+        {
+          "name": "attempt_number",
+          "type": "integer"
+        },
+        {
+          "name": "error_message",
+          "type": "text"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "finished_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "locked_until",
+          "type": "timestamptz"
+        },
+        {
+          "name": "terminal_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "failure_event_emitted_at",
+          "type": "timestamptz"
+        }
+      ],
+      "width": 295
+    },
+    {
+      "id": "publication_daily_stats",
+      "label": "publication_daily_stats",
+      "sublabel": "UNIQUE(publication_id, stat_date), daily deltas",
+      "tag": "read models",
+      "row": 1,
+      "col": 3,
+      "sources": [
+        {
+          "path": "apps/api/app/models/read_models.py",
+          "line": 25,
+          "end_line": 41
+        }
+      ],
+      "attributes": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "key": "pk"
+        },
+        {
+          "name": "publication_id",
+          "type": "uuid",
+          "key": [
+            "fk",
+            "uk"
+          ],
+          "references": "publications.id"
+        },
+        {
+          "name": "stat_date",
+          "type": "date",
+          "key": "uk"
+        },
+        {
+          "name": "subscriber_count",
+          "type": "integer"
+        },
+        {
+          "name": "gift_count",
+          "type": "integer"
+        },
+        {
+          "name": "post_count",
+          "type": "integer"
+        },
+        {
+          "name": "gross_revenue_cents",
+          "type": "bigint"
+        },
+        {
+          "name": "author_net_cents",
+          "type": "bigint"
+        },
+        {
+          "name": "platform_fees_cents",
+          "type": "bigint"
+        },
+        {
+          "name": "tax_collected_cents",
+          "type": "bigint"
+        }
+      ],
+      "width": 250
+    },
+    {
+      "id": "user_feed_events",
+      "label": "user_feed_events",
+      "sublabel": "index (user_id, created_at)",
+      "tag": "read models",
+      "row": 2,
+      "col": 3,
+      "sources": [
+        {
+          "path": "apps/api/app/models/read_models.py",
+          "line": 44,
+          "end_line": 62
+        }
+      ],
+      "attributes": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "key": "pk"
+        },
+        {
+          "name": "user_id",
+          "type": "uuid",
+          "key": "fk",
+          "references": "users.id"
+        },
+        {
+          "name": "publication_id",
+          "type": "uuid",
+          "key": "fk",
+          "references": "publications.id"
+        },
+        {
+          "name": "source_event_id",
+          "type": "uuid"
+        },
+        {
+          "name": "event_type",
+          "type": "varchar(128)"
+        },
+        {
+          "name": "payload",
+          "type": "jsonb"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "read_at",
+          "type": "timestamptz"
+        }
+      ]
+    },
+    {
+      "id": "notification_events",
+      "label": "notification_events",
+      "tag": "read models",
+      "row": 3,
+      "col": 3,
+      "sources": [
+        {
+          "path": "apps/api/app/models/read_models.py",
+          "line": 65,
+          "end_line": 77
+        }
+      ],
+      "attributes": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "key": "pk"
+        },
+        {
+          "name": "publication_id",
+          "type": "uuid",
+          "key": "fk",
+          "references": "publications.id"
+        },
+        {
+          "name": "event_type",
+          "type": "varchar(128)"
+        },
+        {
+          "name": "payload",
+          "type": "jsonb"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        }
+      ]
+    },
+    {
+      "id": "reconciliation_log",
+      "label": "reconciliation_log",
+      "sublabel": "immutable; action retry|amend|discard|manual_fix; reason >= 10 chars",
+      "tag": "operability",
+      "row": 4,
+      "col": 3,
+      "sources": [
+        {
+          "path": "apps/api/app/models/operability.py",
+          "line": 17,
+          "end_line": 36
+        }
+      ],
+      "attributes": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "key": "pk"
+        },
+        {
+          "name": "event_id",
+          "type": "uuid"
+        },
+        {
+          "name": "admin_user_id",
+          "type": "uuid",
+          "key": "fk",
+          "references": "users.id"
+        },
+        {
+          "name": "action",
+          "type": "varchar(16)"
+        },
+        {
+          "name": "reason",
+          "type": "text"
+        },
+        {
+          "name": "state_before",
+          "type": "jsonb"
+        },
+        {
+          "name": "state_after",
+          "type": "jsonb"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        }
+      ],
+      "width": 250
+    }
+  ],
+  "relationships": [
+    {
+      "id": "pub_owner",
+      "from": "publications",
+      "to": "users",
+      "fromCardinality": "many",
+      "toCardinality": "one",
+      "label": "owner"
+    },
+    {
+      "id": "post_pub",
+      "from": "posts",
+      "to": "publications",
+      "fromCardinality": "many",
+      "toCardinality": "one"
+    },
+    {
+      "id": "post_author",
+      "from": "posts",
+      "to": "users",
+      "fromCardinality": "many",
+      "toCardinality": "one",
+      "label": "author"
+    },
+    {
+      "id": "version_post",
+      "from": "post_versions",
+      "to": "posts",
+      "fromCardinality": "many",
+      "toCardinality": "one"
+    },
+    {
+      "id": "send_post",
+      "from": "newsletter_sends",
+      "to": "posts",
+      "fromCardinality": "many",
+      "toCardinality": "one"
+    },
+    {
+      "id": "send_pub",
+      "from": "newsletter_sends",
+      "to": "publications",
+      "fromCardinality": "many",
+      "toCardinality": "one"
+    },
+    {
+      "id": "plan_pub",
+      "from": "subscription_plans",
+      "to": "publications",
+      "fromCardinality": "many",
+      "toCardinality": "one"
+    },
+    {
+      "id": "sub_user",
+      "from": "subscriptions",
+      "to": "users",
+      "fromCardinality": "many",
+      "toCardinality": "one",
+      "label": "subscriber"
+    },
+    {
+      "id": "sub_pub",
+      "from": "subscriptions",
+      "to": "publications",
+      "fromCardinality": "many",
+      "toCardinality": "one"
+    },
+    {
+      "id": "sub_plan",
+      "from": "subscriptions",
+      "to": "subscription_plans",
+      "fromCardinality": "many",
+      "toCardinality": "one"
+    },
+    {
+      "id": "gift_user",
+      "from": "gift_transactions",
+      "to": "users",
+      "fromCardinality": "many",
+      "toCardinality": "one",
+      "label": "sender"
+    },
+    {
+      "id": "gift_pub",
+      "from": "gift_transactions",
+      "to": "publications",
+      "fromCardinality": "many",
+      "toCardinality": "one"
+    },
+    {
+      "id": "ltx_pub",
+      "from": "ledger_transactions",
+      "to": "publications",
+      "fromCardinality": "many",
+      "toCardinality": "one"
+    },
+    {
+      "id": "ltx_sub",
+      "from": "ledger_transactions",
+      "to": "subscriptions",
+      "fromCardinality": "one",
+      "toCardinality": "one",
+      "fromOptional": true,
+      "identifying": false,
+      "variant": "dashed",
+      "label": "source_id when source_type = subscription"
+    },
+    {
+      "id": "ltx_gift",
+      "from": "ledger_transactions",
+      "to": "gift_transactions",
+      "fromCardinality": "one",
+      "toCardinality": "one",
+      "fromOptional": true,
+      "identifying": false,
+      "variant": "dashed",
+      "label": "source_id when source_type = gift"
+    },
+    {
+      "id": "entry_ltx",
+      "from": "ledger_entries",
+      "to": "ledger_transactions",
+      "fromCardinality": "many",
+      "toCardinality": "one",
+      "label": "3 per transaction"
+    },
+    {
+      "id": "entry_pub",
+      "from": "ledger_entries",
+      "to": "publications",
+      "fromCardinality": "many",
+      "toCardinality": "one"
+    },
+    {
+      "id": "idem_user",
+      "from": "idempotency_keys",
+      "to": "users",
+      "fromCardinality": "many",
+      "toCardinality": "one"
+    },
+    {
+      "id": "attempt_outbox",
+      "from": "event_processing_attempts",
+      "to": "outbox_events",
+      "fromCardinality": "one",
+      "toCardinality": "one",
+      "fromOptional": true,
+      "identifying": false,
+      "variant": "dashed",
+      "label": "event_id = payload.event_id"
+    },
+    {
+      "id": "stats_pub",
+      "from": "publication_daily_stats",
+      "to": "publications",
+      "fromCardinality": "many",
+      "toCardinality": "one"
+    },
+    {
+      "id": "feed_user",
+      "from": "user_feed_events",
+      "to": "users",
+      "fromCardinality": "many",
+      "toCardinality": "one"
+    },
+    {
+      "id": "feed_pub",
+      "from": "user_feed_events",
+      "to": "publications",
+      "fromCardinality": "many",
+      "toCardinality": "one"
+    },
+    {
+      "id": "notif_pub",
+      "from": "notification_events",
+      "to": "publications",
+      "fromCardinality": "many",
+      "toCardinality": "one"
+    },
+    {
+      "id": "recon_admin",
+      "from": "reconciliation_log",
+      "to": "users",
+      "fromCardinality": "many",
+      "toCardinality": "one",
+      "label": "admin"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "slate",
+      "title": "Reading the diagram",
+      "items": [
+        "Rows are physical columns: pk, fk and uk badges mark primary, foreign and unique keys; a column can carry several roles.",
+        "Solid crow's-foot lines are foreign keys (many-to-one). Dashed lines are logical links without a database foreign key.",
+        "The legend strip is hidden because a route ran through its band; the badges on each row carry the same information."
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Invariants enforced in the schema",
+      "items": [
+        "ledger_transactions owns the balance CHECKs; ledger_entries cannot sum sibling rows, so it only carries UNIQUE(transaction, account).",
+        "UNIQUE(source_type, source_id) makes a second ledger transaction for the same subscription or gift impossible.",
+        "Partial unique index on subscriptions: one active row per (subscriber, publication)."
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Logical links without foreign keys",
+      "items": [
+        "event_processing_attempts.event_id, user_feed_events.source_event_id and reconciliation_log.event_id point at the envelope's event_id inside outbox_events.payload; no FK crosses the async boundary.",
+        "ledger_transactions.source_id is polymorphic over subscriptions and gift_transactions, discriminated by source_type.",
+        "subscriptions.charged_amount_cents freezes the creation charge; amount_cents mutates on tier change."
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Immutable tables",
+      "items": [
+        "ledger_transactions, ledger_entries, post_versions, reconciliation_log reject UPDATE and DELETE through a database trigger and a SQLAlchemy guard.",
+        "Columns beyond the Sprint-2 migration (charged_*, next_attempt_at, terminal_at, locked_until, failure_event_emitted_at) exist in the models but their migration is not yet tracked in git."
+      ]
+    }
+  ]
+}
