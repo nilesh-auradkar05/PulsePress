@@ -7,6 +7,46 @@ Active sprint: **Sprint 5 — Publishing + Newsletter + SSE (not started)**
 > Sprint 4 is complete: it activates commerce delivery locally and validates
 > the AWS Terraform wiring. Sprint 5 will route the pending publishing events.
 
+## S4-R01 — Architecture revision v1.2 (user-directed, post-Sprint 4)
+
+Trace:
+- OpenAPI: contract unchanged (21 paths); no new endpoints proposed.
+- Event: catalog unchanged (10 events); no new names/fields.
+- Architecture/Data model: `docs/architecture.md` v1.1 → proposed v1.2 in `docs/architecture-revision.md`;
+  SPEC §6 ER deltas (already-in-code columns + four additive Sprint-5 changes).
+- Sprint plan: gate between Sprint 4 (done) and Sprint 5 (not started).
+- Test plan: §3 worker rows for `post.published` / `newsletter.send.requested` drive the S5 LLD.
+
+Assumptions:
+- Spec pack recovered from git history (commit `15b9da8`, pre-`6bc67b7`) because `docs/*` is gitignored;
+  the author's local copies may be newer.
+- Phase-1 scale target ≤ 1k users / ≤ 10k subscribers per publication (not stated in SPEC).
+
+Expected behavior:
+- A decision-oriented revision: as-built vs. designed delta, revised HLD/LLD, data-model deltas,
+  scalability/reliability/security/cost, phased plan, risks, proposed ADR-0013/0014/0015.
+
+Implementation notes:
+- Docs only. `.gitignore` gains `!docs/architecture-revision.md` (same whitelist pattern as the two guides).
+- No code, schema, or Terraform changes.
+
+Verification commands (fresh clone, throwaway Postgres 16 UTF8 on :5544, Python 3.12):
+```
+python3 scripts/ci/check_docs_links.py docs CLAUDE.md README.md   -> OK (5 files)
+python3 scripts/ci/validate_openapi.py docs/openapi.yaml           -> OK (3.1.0, 21 paths)
+apps/api:    uv run ruff check -> clean; uv run pyright -> 0/0/0; uv run pytest -> 85 passed, 1 failed, 2 errors
+             (tests/test_migrations.py: tracked chain lacks the Sprint-4 migration; "exactly three balanced entries" DID NOT RAISE)
+apps/worker: uv run ruff check -> clean; uv run pyright -> 0/0/0; uv run pytest -> 3 passed, 21 failed
+             (UndefinedColumn: outbox_events.next_attempt_at — same root cause)
+GitHub Actions CI run #15 on main (3e76bff): api pytest step FAILED; worker/web/terraform/guardrails green.
+```
+
+Result: **passed (docs delivered)**; blocking finding recorded: `apps/api/alembic/` and `docs/*` are
+gitignored, so the Sprint-4 migration and the spec pack are absent from `main` (CI red, deploy-breaking).
+See revision §3 F1/F2 and §9 P0.
+
+---
+
 ## Completed tasks (Sprint 4)
 
 - [x] S4-T01 — Transactional outbox poller with SKIP LOCKED, EventBridge delivery, backoff, and terminal failed rows

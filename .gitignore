@@ -250,6 +250,7 @@ docs/*
 !docs/openapi.yaml
 !docs/aws-production-setup-guide.md
 !docs/setup-test-guide.md
+!docs/architecture-revision.md
 
 # --- PulsePress: Terraform (keep .terraform.lock.hcl + *.tfvars.example tracked) ---
 **/.terraform/*
