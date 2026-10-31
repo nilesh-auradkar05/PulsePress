@@ -251,6 +251,9 @@ docs/*
 !docs/aws-production-setup-guide.md
 !docs/setup-test-guide.md
 !docs/architecture-revision.md
+!docs/SPEC.md
+!docs/sprint-plan.md
+!docs/test-plan.md
 
 # --- PulsePress: Terraform (keep .terraform.lock.hcl + *.tfvars.example tracked) ---
 **/.terraform/*

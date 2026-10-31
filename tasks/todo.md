@@ -7,6 +7,33 @@ Active sprint: **Sprint 5 — Publishing + Newsletter + SSE (not started)**
 > Sprint 4 is complete: it activates commerce delivery locally and validates
 > the AWS Terraform wiring. Sprint 5 will route the pending publishing events.
 
+## S4-R02 — Spec pack revision for one-feature sprints (user-directed)
+
+Trace:
+- Architecture: `docs/architecture-revision.md` (worker contract, schema package, routing, TLS, read models, two-locus retry, seven metrics).
+- Sprint plan: `docs/sprint-plan.md` v1.2 — Sprints 0–4 kept as history; Sprints 5–13 re-cut to one feature each with unit / integration / contract / regression / E2E / infra / load / chaos families.
+- Test plan: `docs/test-plan.md` v1.2 — family taxonomy, pytest markers, CI matrix, per-sprint verification matrix, load and chaos sections, regression policy.
+- SPEC: `docs/SPEC.md` v1.4 — §0 tracked docs, §4 stack, §5.2 roles, §6 additive constraints and daily-delta stats, §8 routing, §10 outbox/attempt state machines, §11 worker contract, §12 seven metrics + two-locus retry, §14 TLS, §15 structure, §16 sprint table, §17 ADR-0012–0015.
+- AWS guide: §0 repository prerequisites, sprint-gated additions (§21), HTTPS-first web boundary, newsletter/SSE/alarm smoke steps.
+
+Assumptions:
+- Inputs are the user's uploaded local copies (SPEC v1.3, sprint plan v1.1 with S3-T08 and Sprint-4 evidence, test plan v1.1).
+- Sprint numbering restarts the remaining work at Sprint 5 (schema package) through Sprint 13 (portfolio); the old Sprint 5–8 content is redistributed, not dropped.
+- No OpenAPI or event-catalog change; pytest markers and `scripts/integration/acceptance_local.sh` are introduced by Sprint 5.
+
+Implementation notes:
+- Docs only. `.gitignore` now whitelists `docs/SPEC.md`, `docs/sprint-plan.md`, `docs/test-plan.md` so the revisions are tracked (Sprint 5 removes the `docs/*` ignore entirely).
+
+Verification commands:
+```
+python3 scripts/ci/check_docs_links.py docs CLAUDE.md README.md
+python3 scripts/ci/validate_openapi.py docs/openapi.yaml
+```
+
+Result: **passed (docs delivered)**. `check_docs_links.py` → OK across 8 files; `validate_openapi.py` → OK (3.1.0, 21 paths); `git check-ignore` confirms the three docs are tracked via the negation rules.
+
+---
+
 ## S4-R01 — Architecture revision v1.2 (user-directed, post-Sprint 4)
 
 Trace:
