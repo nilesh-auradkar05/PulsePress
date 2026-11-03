@@ -50,6 +50,24 @@ Record user corrections here. Format: date / correction / root cause / preventio
   the literal `terraform apply`/`terraform destroy` adjacency. Do not disable the guard.
 - **Applied:** Yes (Sprint 0 commit used `git commit -F`).
 
+## 2026-10-31 — Gitignored migrations and spec pack broke CI and traceability
+
+- **Finding:** `.gitignore` ignores `apps/api/alembic/` (line 248) and `docs/*` (line 249, three
+  whitelisted files). Only the Sprint-2 initial migration is in git; the Sprint-4 migration that adds
+  `outbox_events.next_attempt_at/terminal_at`, `event_processing_attempts.locked_until/terminal_at/
+  failure_event_emitted_at`, `subscriptions.charged_amount_cents/charged_currency`, and the
+  three-entry ledger trigger exists only on the author's machine. CI on `main` has been red since
+  the Sprint 3+4 merge (api pytest); a fresh-clone worker suite fails 21/24 with `UndefinedColumn`.
+  The canonical spec pack (SPEC, architecture, event catalog, sprint/test plans, ADRs) is likewise
+  absent, so CLAUDE.md §2 read-order and §20 traceability cannot be satisfied outside that machine.
+- **Root cause:** a `.gitignore` edit intended for scratch/import artifacts swept in two canonical
+  directories; nothing in CI checks model-vs-migration drift, and the worker CI job has no Postgres
+  service, so its DB tests silently skip.
+- **Prevention rule:** never ignore `alembic/versions/` or `docs/`. Add `alembic check` to the api CI
+  job and a Postgres service to the worker CI job so drift fails in CI, not at deploy time. Record
+  the decision as ADR-0015 (see `docs/architecture-revision.md` §11).
+- **Applied:** No (requires the author's untracked files); recorded as P0 in the revision plan.
+
 ## 2026-05-30 — Sprint 2 user-directed additions (frontend auth wiring + README)
 
 - **Direction:** The user added two tasks beyond the canonical Sprint 2 (S2-T01/02/03): a local

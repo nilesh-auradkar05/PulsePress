@@ -1,0 +1,715 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "PulsePress distributed system view: scaling and failure domains",
+    "output": ".archify/architecture-distributed-20261031-083356/pulsepress-distributed.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/nilesh-auradkar05/PulsePress",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "cdc36327e3d6351f6c875bfc9767f4a8feff9cc7"
+    },
+    "views": [
+      {
+        "id": "scale_out",
+        "label": "Horizontal scaling",
+        "focus": [
+          "alb",
+          "api_a",
+          "api_b",
+          "worker_a",
+          "worker_b",
+          "sqs"
+        ],
+        "note": "Stateless API tasks behind the ALB; worker tasks compete on SKIP LOCKED outbox claims and SQS visibility timeouts."
+      },
+      {
+        "id": "failure",
+        "label": "Failure domains",
+        "focus": [
+          "rds",
+          "redis",
+          "eventbridge",
+          "sqs",
+          "worker_dlq",
+          "eb_dlq"
+        ],
+        "note": "RDS is the single durable store; queues absorb worker outages; DLQs isolate poison and undeliverable events."
+      },
+      {
+        "id": "supply",
+        "label": "Supply chain and secrets",
+        "focus": [
+          "github",
+          "ecr",
+          "secrets",
+          "api_b",
+          "cognito"
+        ],
+        "note": "CI validates and builds; images come from ECR; DATABASE_URL arrives by Secrets Manager reference at task start."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "users",
+      "type": "external",
+      "label": "Clients",
+      "sublabel": "readers, writers, admins",
+      "pos": [
+        40,
+        300
+      ],
+      "size": [
+        130,
+        60
+      ]
+    },
+    {
+      "id": "github",
+      "type": "external",
+      "label": "GitHub Actions",
+      "sublabel": "CI: lint, test, validate",
+      "pos": [
+        40,
+        560
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sources": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "line": 11,
+          "end_line": 41
+        }
+      ]
+    },
+    {
+      "id": "secrets",
+      "type": "security",
+      "label": "Secrets Manager",
+      "sublabel": "DATABASE_URL reference",
+      "pos": [
+        230,
+        120
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "sources": [
+        {
+          "path": "infra/terraform/environments/dev/main.tf",
+          "line": 65,
+          "end_line": 68
+        },
+        {
+          "path": "infra/terraform/modules/ecs/main.tf",
+          "line": 49,
+          "end_line": 64,
+          "label": "exec role read"
+        }
+      ]
+    },
+    {
+      "id": "alb",
+      "type": "cloud",
+      "label": "ALB",
+      "sublabel": "public subnets, 2 AZs",
+      "pos": [
+        230,
+        300
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "tag": "HTTP :80",
+      "sources": [
+        {
+          "path": "infra/terraform/modules/alb/main.tf",
+          "line": 28,
+          "end_line": 62
+        }
+      ]
+    },
+    {
+      "id": "cognito",
+      "type": "security",
+      "label": "Cognito",
+      "sublabel": "user pool + PKCE client",
+      "pos": [
+        230,
+        480
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "sources": [
+        {
+          "path": "infra/terraform/modules/cognito/main.tf",
+          "line": 4,
+          "end_line": 38
+        }
+      ]
+    },
+    {
+      "id": "api_a",
+      "type": "backend",
+      "label": "API task",
+      "sublabel": "Fargate 0.25 vCPU, AZ-a",
+      "pos": [
+        430,
+        200
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "tag": "desired_count N",
+      "sources": [
+        {
+          "path": "infra/terraform/modules/ecs/main.tf",
+          "line": 148,
+          "end_line": 166
+        }
+      ]
+    },
+    {
+      "id": "api_b",
+      "type": "backend",
+      "label": "API task",
+      "sublabel": "Fargate 0.25 vCPU, AZ-b",
+      "pos": [
+        430,
+        400
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "tag": "stateless",
+      "sources": [
+        {
+          "path": "infra/terraform/modules/ecs/main.tf",
+          "line": 111,
+          "end_line": 146
+        }
+      ]
+    },
+    {
+      "id": "redis",
+      "type": "database",
+      "label": "ElastiCache Redis",
+      "sublabel": "cache.t4g, single node",
+      "pos": [
+        640,
+        40
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "tag": "loss = degraded SSE",
+      "sources": [
+        {
+          "path": "infra/terraform/modules/elasticache/main.tf",
+          "line": 33,
+          "end_line": 43
+        }
+      ]
+    },
+    {
+      "id": "rds",
+      "type": "database",
+      "label": "RDS PostgreSQL",
+      "sublabel": "private, encrypted, single-AZ",
+      "pos": [
+        640,
+        300
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "tag": "source of truth",
+      "sources": [
+        {
+          "path": "infra/terraform/modules/rds/main.tf",
+          "line": 35,
+          "end_line": 51
+        }
+      ]
+    },
+    {
+      "id": "worker_a",
+      "type": "backend",
+      "label": "Worker task",
+      "sublabel": "poller + consumer, AZ-a",
+      "pos": [
+        850,
+        200
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "tag": "competing consumer",
+      "sources": [
+        {
+          "path": "infra/terraform/modules/ecs/main.tf",
+          "line": 199,
+          "end_line": 211
+        },
+        {
+          "path": "apps/worker/pulsepress_worker/outbox.py",
+          "line": 64,
+          "end_line": 86,
+          "label": "SKIP LOCKED"
+        }
+      ]
+    },
+    {
+      "id": "worker_b",
+      "type": "backend",
+      "label": "Worker task",
+      "sublabel": "poller + consumer, AZ-b",
+      "pos": [
+        850,
+        400
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "tag": "lease 300 s",
+      "sources": [
+        {
+          "path": "infra/terraform/modules/ecs/main.tf",
+          "line": 168,
+          "end_line": 197
+        },
+        {
+          "path": "apps/worker/pulsepress_worker/processor.py",
+          "line": 196,
+          "end_line": 235,
+          "label": "claim lease"
+        }
+      ]
+    },
+    {
+      "id": "eventbridge",
+      "type": "messagebus",
+      "label": "EventBridge bus",
+      "sublabel": "regional, managed",
+      "pos": [
+        1060,
+        300
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "tag": "24 retries / 1 h",
+      "sources": [
+        {
+          "path": "infra/terraform/modules/messaging/main.tf",
+          "line": 1,
+          "end_line": 3
+        },
+        {
+          "path": "infra/terraform/modules/messaging/main.tf",
+          "line": 45,
+          "end_line": 58,
+          "label": "target + retry"
+        }
+      ]
+    },
+    {
+      "id": "sqs",
+      "type": "messagebus",
+      "label": "SQS worker queue",
+      "sublabel": "visibility 360 s, SSE",
+      "pos": [
+        1270,
+        300
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "tag": "maxReceive 5",
+      "sources": [
+        {
+          "path": "infra/terraform/modules/messaging/main.tf",
+          "line": 17,
+          "end_line": 27
+        }
+      ]
+    },
+    {
+      "id": "eb_dlq",
+      "type": "messagebus",
+      "label": "EventBridge DLQ",
+      "sublabel": "undeliverable events",
+      "pos": [
+        1060,
+        480
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "sources": [
+        {
+          "path": "infra/terraform/modules/messaging/main.tf",
+          "line": 11,
+          "end_line": 15
+        }
+      ]
+    },
+    {
+      "id": "worker_dlq",
+      "type": "messagebus",
+      "label": "Worker DLQ",
+      "sublabel": "poison messages, 14 d",
+      "pos": [
+        1270,
+        480
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "sources": [
+        {
+          "path": "infra/terraform/modules/messaging/main.tf",
+          "line": 5,
+          "end_line": 9
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "type": "cloud",
+      "label": "S3 artifact bucket",
+      "sublabel": "versioned, TLS-only, private",
+      "pos": [
+        850,
+        560
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "tag": "write-once objects",
+      "sources": [
+        {
+          "path": "infra/terraform/modules/messaging/main.tf",
+          "line": 114,
+          "end_line": 179
+        }
+      ]
+    },
+    {
+      "id": "ecr",
+      "type": "cloud",
+      "label": "ECR",
+      "sublabel": "api + worker images",
+      "pos": [
+        430,
+        560
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "sources": [
+        {
+          "path": "infra/terraform/modules/ecr/main.tf",
+          "line": 1,
+          "end_line": 10
+        }
+      ]
+    },
+    {
+      "id": "cloudwatch",
+      "type": "cloud",
+      "label": "CloudWatch",
+      "sublabel": "log groups per service",
+      "pos": [
+        1270,
+        120
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "tag": "alarms Sprint 6",
+      "sources": [
+        {
+          "path": "infra/terraform/modules/ecs/main.tf",
+          "line": 17,
+          "end_line": 25
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "AWS us-east-1, VPC 2 AZs (no NAT; tasks hold public IPs)",
+      "wraps": [
+        "secrets",
+        "alb",
+        "cognito",
+        "api_a",
+        "api_b",
+        "redis",
+        "rds",
+        "worker_a",
+        "worker_b",
+        "eventbridge",
+        "sqs",
+        "eb_dlq",
+        "worker_dlq",
+        "s3",
+        "ecr",
+        "cloudwatch"
+      ],
+      "pad": 22
+    },
+    {
+      "kind": "security-group",
+      "label": "public subnet AZ-a, api-sg (ingress ALB only)",
+      "wraps": [
+        "api_a",
+        "worker_a"
+      ],
+      "pad": 12
+    },
+    {
+      "kind": "security-group",
+      "label": "public subnet AZ-b, api-sg (ingress ALB only)",
+      "wraps": [
+        "api_b",
+        "worker_b"
+      ],
+      "pad": 12
+    },
+    {
+      "kind": "security-group",
+      "label": "private subnets (ingress from api-sg)",
+      "wraps": [
+        "redis",
+        "rds"
+      ],
+      "pad": 12
+    }
+  ],
+  "connections": [
+    {
+      "id": "users_alb",
+      "from": "users",
+      "to": "alb",
+      "label": "HTTPS (TLS pending)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "users_cognito",
+      "from": "users",
+      "to": "cognito",
+      "label": "hosted UI login",
+      "variant": "security"
+    },
+    {
+      "id": "alb_api_a",
+      "from": "alb",
+      "to": "api_a",
+      "label": "target group",
+      "variant": "emphasis"
+    },
+    {
+      "id": "alb_api_b",
+      "from": "alb",
+      "to": "api_b",
+      "label": "target group",
+      "variant": "emphasis"
+    },
+    {
+      "id": "api_b_cognito",
+      "from": "api_b",
+      "to": "cognito",
+      "label": "JWKS (every task)",
+      "variant": "security"
+    },
+    {
+      "id": "api_a_rds",
+      "from": "api_a",
+      "to": "rds",
+      "label": "SQL, pool per task",
+      "variant": "emphasis"
+    },
+    {
+      "id": "api_b_rds",
+      "from": "api_b",
+      "to": "rds",
+      "label": "SQL, pool per task",
+      "variant": "emphasis"
+    },
+    {
+      "id": "api_a_redis",
+      "from": "api_a",
+      "to": "redis",
+      "label": "cache + SSE (S5)",
+      "variant": "dashed"
+    },
+    {
+      "id": "worker_a_rds",
+      "from": "worker_a",
+      "to": "rds",
+      "label": "SKIP LOCKED, FOR UPDATE",
+      "variant": "emphasis"
+    },
+    {
+      "id": "worker_b_rds",
+      "from": "worker_b",
+      "to": "rds",
+      "label": "SKIP LOCKED, FOR UPDATE",
+      "variant": "emphasis"
+    },
+    {
+      "id": "worker_a_redis",
+      "from": "worker_a",
+      "to": "redis",
+      "label": "publish (S5)",
+      "variant": "dashed"
+    },
+    {
+      "id": "worker_a_eb",
+      "from": "worker_a",
+      "to": "eventbridge",
+      "label": "PutEvents",
+      "variant": "emphasis"
+    },
+    {
+      "id": "worker_b_eb",
+      "from": "worker_b",
+      "to": "eventbridge",
+      "label": "PutEvents",
+      "variant": "emphasis"
+    },
+    {
+      "id": "eb_sqs",
+      "from": "eventbridge",
+      "to": "sqs",
+      "label": "rule target",
+      "variant": "emphasis"
+    },
+    {
+      "id": "sqs_worker_a",
+      "from": "sqs",
+      "to": "worker_a",
+      "label": "receive (competing)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "sqs_worker_b",
+      "from": "sqs",
+      "to": "worker_b",
+      "label": "receive (competing)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "eb_dlq_edge",
+      "from": "eventbridge",
+      "to": "eb_dlq",
+      "label": "target failure",
+      "variant": "dashed"
+    },
+    {
+      "id": "sqs_dlq_edge",
+      "from": "sqs",
+      "to": "worker_dlq",
+      "label": "5th receive",
+      "variant": "dashed"
+    },
+    {
+      "id": "worker_b_s3",
+      "from": "worker_b",
+      "to": "s3",
+      "label": "PUT IfNoneMatch *",
+      "variant": "default"
+    },
+    {
+      "id": "secrets_api_a",
+      "from": "secrets",
+      "to": "api_a",
+      "label": "secret at task start (API + worker roles)",
+      "variant": "security"
+    },
+    {
+      "id": "github_ecr",
+      "from": "github",
+      "to": "ecr",
+      "label": "push image",
+      "variant": "dashed"
+    },
+    {
+      "id": "ecr_api_b",
+      "from": "ecr",
+      "to": "api_b",
+      "label": "pull image (all tasks)",
+      "variant": "dashed"
+    },
+    {
+      "id": "worker_a_cw",
+      "from": "worker_a",
+      "to": "cloudwatch",
+      "label": "awslogs",
+      "variant": "dashed"
+    },
+    {
+      "id": "api_a_cw",
+      "from": "api_a",
+      "to": "cloudwatch",
+      "label": "awslogs",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "How it scales",
+      "items": [
+        "API: stateless tasks, desired_count is a Terraform variable; ALB spreads across both AZs.",
+        "Worker: N tasks claim disjoint outbox batches via SKIP LOCKED and compete for SQS messages; a lease per event_id keeps duplicates out.",
+        "Throughput ceiling today: 25 outbox rows per poll, poll serialized behind a 10 s SQS long-poll; split poller and consumer roles to lift it."
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Failure domains",
+      "items": [
+        "RDS single-AZ is the only durable state; a failover is a restart, not data loss (outbox rows survive).",
+        "Redis loss: cache misses and a degraded live stream, no data impact.",
+        "Worker outage: SQS buffers up to 14 days; EventBridge retries 24 times for 1 h, then the target DLQ.",
+        "Poison message: left in queue, redriven after 5 receives; attempt_number >= 5 emits event.processing.failed."
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Deliberate Phase-1 trade-offs",
+      "items": [
+        "Tasks sit in public subnets with public IPs to avoid NAT cost; security groups admit only the ALB.",
+        "Single region, single RDS AZ, HTTP-only ALB until TLS lands; scale-to-zero keeps cost near $40/month at rest.",
+        "Secrets Manager and ECR edges are drawn once; every task in both AZs uses them."
+      ]
+    }
+  ]
+}

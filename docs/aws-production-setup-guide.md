@@ -10,6 +10,30 @@ Current repo reality: `infra/terraform/environments/dev` exists; a dedicated
 explicitly before a production-shaped deploy. Do not reuse the dev environment
 as a production substitute.
 
+This guide follows the sprint plan v1.2 (`docs/sprint-plan.md`). Steps that
+depend on a later sprint say so; section 21 lists what each sprint adds here.
+
+## 0. Repository Prerequisites
+
+Do not deploy from a checkout that cannot pass CI. Before any `terraform apply`
+or image push, confirm on the exact commit you will deploy:
+
+```bash
+git status --short                      # clean tree
+git log -1 --oneline                    # the commit you are deploying
+ls packages/pulsepress_schema/alembic/versions 2>/dev/null \
+  || ls apps/api/alembic/versions       # every migration the models need is tracked
+```
+
+Requirements (Sprint 5, ADR-0015):
+
+- The Alembic migration chain and the `docs/` spec pack are tracked in git. A
+  deploy from a checkout whose migrations exist only on a developer machine
+  produces a schema the worker cannot run against.
+- `alembic heads` reports exactly one head and `alembic check` is empty.
+- The latest CI run on the deployed commit is green with no skipped database
+  suites (the `api` and `worker` jobs both run against Postgres).
+
 ## 1. What Gets Deployed
 
 The current Terraform modules create:
@@ -24,16 +48,28 @@ The current Terraform modules create:
 - Cognito user pool, public app client, and hosted UI domain.
 - Secrets Manager secret for `PULSEPRESS_DATABASE_URL`.
 - EventBridge bus, worker SQS queue, worker poison-message DLQ, distinct
-  EventBridge target-delivery DLQ, and a private versioned receipt bucket.
+  EventBridge target-delivery DLQ, and a private versioned artifact bucket
+  (`receipts/*` today, `newsletters/*` from Sprint 6).
+
+Added by later sprints (each lands with its own Terraform change and tests):
+
+- Sprint 8: ACM certificate, HTTPS listener on the ALB, HTTP → HTTPS redirect,
+  Cognito callback/logout URLs on the hosted web origin.
+- Sprint 11: observability module (seven metrics, five named alarms, SNS
+  topic, ADOT sidecars) and the worker role split
+  (`PULSEPRESS_WORKER_ROLE=poller|consumer|both`).
 
 Current application boundary:
 
 - API production auth validates Cognito JWTs.
 - Web local auth is passwordless and development-only.
-- A production browser PKCE callback is not implemented in the current web app.
-  This guide includes manual Cognito PKCE token acquisition for API smoke tests.
+- A production browser PKCE callback is not implemented until Sprint 8. This
+  guide includes manual Cognito PKCE token acquisition for API smoke tests.
   Do not mark full production browser acceptance complete until the web PKCE
-  adapter/callback is implemented and configured.
+  adapter/callback is implemented and the ALB serves HTTPS.
+- Until Sprint 6 the worker routes only the six commerce/kernel event types;
+  `post.published` rows stay `pending`. From Sprint 6 all ten catalog events
+  are routed and a pending `post.published` row is a defect.
 
 ## 2. Required Keys, Tokens, and Secrets
 
@@ -449,6 +485,12 @@ aws ecs describe-tasks \
 
 Expected output: `0`.
 
+Confirm the database is at the single head the image carries. Run the same
+one-off task with the command `["uv","run","--no-dev","alembic","current"]`
+and compare its output with `alembic heads` from the deployed commit; they
+must match. From Sprint 5 the chain lives in `packages/pulsepress_schema`, and
+the API image's `alembic.ini` points there, so the commands do not change.
+
 ## 13. Start API and Worker Services
 
 Update `terraform.tfvars` only after the migration exits successfully:
@@ -483,8 +525,13 @@ aws logs tail "/ecs/${PROJECT}-${ENVIRONMENT}-worker" --since 10m
 
 The worker task role is deliberately limited to `events:PutEvents` on the
 project bus, consume/delete operations on the primary worker queue, and
-`s3:GetObject`/`s3:PutObject` under `receipts/*`. It has no receipt delete or
-DLQ-consume permission.
+`s3:GetObject`/`s3:PutObject` under `receipts/*` (plus `newsletters/*` from
+Sprint 6). It has no artifact delete or DLQ-consume permission. From Sprint 11
+the worker runs as two services, `PULSEPRESS_WORKER_ROLE=poller` and
+`PULSEPRESS_WORKER_ROLE=consumer`, so an idle SQS long-poll never delays the
+outbox; `worker_desired_count` then applies to each service. Keep the SQS
+`visibility_timeout_seconds` (360) above `PULSEPRESS_WORKER_EVENT_LOCK_SECONDS`
+(300) plus the handler budget; Terraform validates this from Sprint 11.
 
 ## 14. Create a Cognito Demo User
 
@@ -772,7 +819,20 @@ Expected result: subscribe returns 201 with a bill, the reader post read returns
 `entitled:true` and the body, gift returns `status:"pending"` with
 `total_charged_cents:1080`, and summary counters include the subscription, post,
 and API-side revenue source rows. Same idempotency-key replays must not create a
-second subscription or gift.
+second subscription or gift. From Sprint 7 the summary excludes expired
+subscriptions and reports revenue from `ledger_transactions`, so run the worker
+verification below before comparing revenue.
+
+After Sprint 7, verify the live stream from a second shell before the subscribe
+call and watch the event arrive:
+
+```bash
+curl -N "http://${ALB_DNS}/v1/publications/${PUB_ID}/events/stream" \
+  -H "Authorization: Bearer $ID_TOKEN" -H "Accept: text/event-stream"
+```
+
+Expected: a `: keepalive` line at least every 15 seconds and one `data:` JSON
+event for the subscription within two seconds of the API's 201.
 
 ## 18. AWS Worker Delivery Verification
 
@@ -803,8 +863,38 @@ aws sqs get-queue-attributes \
 Expected: worker logs show claimed/published/processed commerce events; the
 primary queue drains; receipt keys exist for the paid subscription and gift; and
 both DLQ depths remain zero. Do not purge or replay a DLQ during this smoke test.
-`post.published` remains pending until Sprint 5 supplies newsletter routing and
-handlers; its absence from worker receipts is expected.
+Before Sprint 6, `post.published` remains pending and its absence from worker
+artifacts is expected.
+
+From Sprint 6, also verify the newsletter path for the published post:
+
+```bash
+aws s3api list-objects-v2 \
+  --bucket "$RECEIPT_BUCKET" \
+  --prefix "newsletters/${PUB_ID}/" \
+  --query 'Contents[].Key' \
+  --output text
+
+curl -fsS "http://${ALB_DNS}/v1/feed/events" \
+  -H "Authorization: Bearer $READER_ID_TOKEN" | jq '.items | length'
+```
+
+Expected: one `newsletters/{publication_id}/{post_id}/{version_id}.html`
+object per published post, `newsletter_sends.status = sent`, and one feed
+event for the reader per post they were entitled to. Re-running the worker
+must not add objects or feed rows.
+
+From Sprint 11, confirm the alarms exist and are in `OK` before continuing:
+
+```bash
+aws cloudwatch describe-alarms \
+  --alarm-name-prefix "${PROJECT}-${ENVIRONMENT}" \
+  --query 'MetricAlarms[].[AlarmName,StateValue]' --output table
+```
+
+Expected: five alarms, all `OK`. A poison event injected with
+`scripts/chaos/poison_event.sh` must flip the DLQ-depth alarm within five
+minutes and clear after an admin retry.
 
 ## 19. AWS Web Setup Boundary
 
@@ -818,17 +908,32 @@ Current local web behavior:
 - `NEXT_PUBLIC_AUTH_MODE=production` does not yet implement the Cognito PKCE
   browser callback.
 
-Before full hosted AWS browser acceptance, add a web production auth adapter
-that:
+Before full hosted AWS browser acceptance (Sprint 8), two things must exist:
 
-1. Builds the Cognito hosted UI authorization URL with PKCE.
-2. Handles `/auth/callback`.
+**TLS first.** The ALB must terminate HTTPS with an ACM certificate for a domain
+you control, and redirect HTTP to HTTPS. ID tokens must never traverse plain
+HTTP. Set the domain and certificate variables in `terraform.tfvars`, apply,
+and confirm:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "http://${WEB_HOST}/healthz"
+curl -fsS "https://${WEB_HOST}/healthz"
+```
+
+Expected: a `301` to the `https://` URL, then `{"status":"ok"}` over HTTPS.
+After this, replace `http://${ALB_DNS}` with `https://${WEB_HOST}` in every
+smoke command above.
+
+**Then the web production auth adapter**, which:
+
+1. Builds the Cognito hosted UI authorization URL with S256 PKCE and a `state`.
+2. Handles `/auth/callback` and verifies `state`.
 3. Exchanges the code at Cognito `/oauth2/token`.
 4. Stores the ID token in session storage.
 5. Calls `/v1/me`.
 6. Clears tokens on sign-out and redirects to the Cognito logout endpoint.
 
-Then configure Cognito callback/logout URLs to the hosted web origin in
+Configure Cognito callback/logout URLs to the hosted HTTPS web origin in
 Terraform before applying:
 
 ```hcl
@@ -836,8 +941,8 @@ callback_urls = ["https://<web-host>/auth/callback"]
 logout_urls   = ["https://<web-host>/"]
 ```
 
-The current Cognito module supports these variables, but the environment layer
-must expose and pass them if you do not use the module defaults.
+The Cognito module supports these variables; from Sprint 8 the environment
+layer exposes and requires them in `prod`.
 
 ## 20. Cost Control and Teardown
 
@@ -865,8 +970,21 @@ Current RDS module settings are demo-friendly: `deletion_protection=false` and
 `skip_final_snapshot=true`. For a real production environment, change those
 defaults before the first production apply.
 
-## 21. Acceptance Checklist
+## 21. Sprint-Gated Changes to This Guide
 
+| Sprint | What it adds to a production deploy | Where in this guide |
+| --- | --- | --- |
+| 5 | Migrations and docs tracked; `alembic heads` single head; CI runs worker DB tests | §0, §12 |
+| 6 | All ten events routed; `newsletters/*` IAM prefix; newsletter smoke | §13, §18 |
+| 7 | Redis pub/sub + SSE; summary from ledger with lazy expiry | §17 |
+| 8 | ACM/HTTPS listener, HTTP redirect, hosted-UI PKCE in the browser, HTTPS callback URLs | §16, §19 |
+| 9–10 | Admin runbook: list, two-locus retry, amend, discard; reconciliation runbook | §18 (poison test), acceptance |
+| 11 | Seven metrics, five alarms, SNS, ADOT sidecars, worker role split, chaos scripts | §13, §18 |
+| 12 | k6 thresholds, outbox archival, scale-to-zero rebuild, NAT vs VPC-endpoint decision | §20 |
+
+## 22. Acceptance Checklist
+
+- The deployed commit is clean, tracked-migration complete, and CI-green (§0).
 - IAM Identity Center profile works with `aws sts get-caller-identity`.
 - Terraform `prod` exists separately from `dev`.
 - Terraform fmt/init/validate/plan pass.
@@ -884,9 +1002,14 @@ defaults before the first production apply.
 - Create/edit/publish/read/archive API smoke passes.
 - Plan/subscribe/gift/paid-entitlement API smoke passes.
 - Worker delivery smoke shows receipts and empty worker/EventBridge DLQs.
-- Hosted web smoke is marked complete only after production PKCE is implemented.
+- From Sprint 6: newsletter artifact and feed rows exist for a published post and do not duplicate on re-run.
+- From Sprint 7: the SSE stream delivers the subscribe event within two seconds.
+- From Sprint 8: HTTP redirects to HTTPS; hosted-UI login completes in the browser.
+- From Sprint 9: a poisoned event is listed in the admin surface and recovered by an audited retry.
+- From Sprint 11: five alarms exist; the poison alarm fires and clears.
+- Hosted web smoke is marked complete only after production PKCE is implemented over HTTPS.
 
-## 22. Official References
+## 23. Official References
 
 - AWS CLI IAM Identity Center configuration:
   <https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sso.html>

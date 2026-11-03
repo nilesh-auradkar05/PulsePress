@@ -1,0 +1,298 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Paid subscription: API write to balanced ledger",
+    "output": ".archify/sequence-paid-subscribe-20261031-083356/pulsepress-paid-subscribe.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/nilesh-auradkar05/PulsePress",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "cdc36327e3d6351f6c875bfc9767f4a8feff9cc7"
+    }
+  },
+  "participants": [
+    {
+      "id": "reader",
+      "type": "external",
+      "label": "Reader",
+      "sublabel": "web client"
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "API",
+      "sublabel": "FastAPI",
+      "sources": [
+        {
+          "path": "apps/api/app/services/commerce.py",
+          "line": 94,
+          "end_line": 186
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "PostgreSQL",
+      "sublabel": "source of truth",
+      "sources": [
+        {
+          "path": "apps/api/app/models/kernel.py",
+          "line": 27,
+          "end_line": 91
+        }
+      ]
+    },
+    {
+      "id": "poller",
+      "type": "backend",
+      "label": "Outbox poller",
+      "sublabel": "worker loop",
+      "sources": [
+        {
+          "path": "apps/worker/pulsepress_worker/outbox.py",
+          "line": 58,
+          "end_line": 111
+        }
+      ]
+    },
+    {
+      "id": "bus",
+      "type": "messagebus",
+      "label": "EventBridge + SQS",
+      "sublabel": "rule to worker queue",
+      "sources": [
+        {
+          "path": "infra/terraform/modules/messaging/main.tf",
+          "line": 29,
+          "end_line": 58
+        }
+      ]
+    },
+    {
+      "id": "worker",
+      "type": "backend",
+      "label": "Worker handler",
+      "sublabel": "WorkerProcessor",
+      "sources": [
+        {
+          "path": "apps/worker/pulsepress_worker/processor.py",
+          "line": 142,
+          "end_line": 194
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "type": "cloud",
+      "label": "S3",
+      "sublabel": "receipts/*",
+      "sources": [
+        {
+          "path": "apps/worker/pulsepress_worker/adapters.py",
+          "line": 134,
+          "end_line": 150
+        }
+      ]
+    }
+  ],
+  "segments": [
+    {
+      "from": 160,
+      "to": 482,
+      "label": "Synchronous commerce write (one transaction)"
+    },
+    {
+      "from": 498,
+      "to": 662,
+      "label": "Outbox publish (at-least-once)"
+    },
+    {
+      "from": 678,
+      "to": 1102,
+      "label": "Idempotent handling (exactly-once effects)"
+    }
+  ],
+  "messages": [
+    {
+      "from": "reader",
+      "to": "api",
+      "y": 184,
+      "label": "POST /v1/subscriptions + Idempotency-Key",
+      "variant": "emphasis",
+      "note": "plan_id, publication_id, amount_cents 500; key at least 16 chars"
+    },
+    {
+      "from": "api",
+      "to": "db",
+      "y": 250,
+      "label": "claim idempotency_keys (user_id, key)",
+      "variant": "security",
+      "note": "known key: same hash replays the stored response (Idempotency-Replayed: true); different hash -> 422"
+    },
+    {
+      "from": "api",
+      "to": "db",
+      "y": 352,
+      "label": "INSERT subscriptions + outbox subscription.created",
+      "variant": "emphasis",
+      "note": "bill computed once: author 450, platform 50, tax 40, total 540; envelope carries correlation_id"
+    },
+    {
+      "from": "db",
+      "to": "api",
+      "y": 432,
+      "label": "COMMIT (row + idempotency record + outbox)",
+      "variant": "return"
+    },
+    {
+      "from": "api",
+      "to": "reader",
+      "y": 468,
+      "label": "201 SubscriptionResult with bill",
+      "variant": "return"
+    },
+    {
+      "from": "poller",
+      "to": "db",
+      "y": 522,
+      "label": "SELECT pending FOR UPDATE SKIP LOCKED",
+      "variant": "default",
+      "note": "batch 25; competing pollers never claim the same row"
+    },
+    {
+      "from": "poller",
+      "to": "bus",
+      "y": 578,
+      "label": "PutEvents(envelope)",
+      "variant": "emphasis",
+      "note": "publish-then-mark; failure -> status failed, backoff 5 s x 2^(n-1), terminal after 10"
+    },
+    {
+      "from": "poller",
+      "to": "db",
+      "y": 644,
+      "label": "status = published",
+      "variant": "return"
+    },
+    {
+      "from": "bus",
+      "to": "worker",
+      "y": 702,
+      "label": "deliver message (visibility 360 s)",
+      "variant": "emphasis"
+    },
+    {
+      "from": "worker",
+      "to": "db",
+      "y": 746,
+      "label": "claim event_processing_attempts, lease 300 s",
+      "variant": "security",
+      "note": "INSERT ... ON CONFLICT DO NOTHING; succeeded -> duplicate (delete), started with live lease -> leave for SQS retry"
+    },
+    {
+      "from": "worker",
+      "to": "db",
+      "y": 834,
+      "label": "validate subscription row FOR UPDATE",
+      "variant": "default",
+      "note": "charged_amount_cents and currency must match the event bill; mismatch is a SourceConflictError"
+    },
+    {
+      "from": "worker",
+      "to": "s3",
+      "y": 900,
+      "label": "PUT receipt JSON, IfNoneMatch *",
+      "variant": "default",
+      "note": "write-once; an identical existing object is accepted, different bytes fail"
+    },
+    {
+      "from": "worker",
+      "to": "db",
+      "y": 978,
+      "label": "ledger_transactions + 3 ledger_entries + stats + outbox ledger.transaction.recorded + attempt succeeded",
+      "variant": "emphasis",
+      "note": "one transaction; UNIQUE(source_type, source_id) blocks a second ledger write on any replay"
+    },
+    {
+      "from": "worker",
+      "to": "bus",
+      "y": 1054,
+      "label": "DeleteMessage",
+      "variant": "return",
+      "note": "on handler failure nothing is deleted; attempt_number >= 5 emits event.processing.failed and SQS redrives to the DLQ"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "api",
+      "from": 178,
+      "to": 474,
+      "type": "backend"
+    },
+    {
+      "participant": "db",
+      "from": 244,
+      "to": 440,
+      "type": "database"
+    },
+    {
+      "participant": "poller",
+      "from": 516,
+      "to": 650,
+      "type": "backend"
+    },
+    {
+      "participant": "bus",
+      "from": 572,
+      "to": 708,
+      "type": "messagebus"
+    },
+    {
+      "participant": "worker",
+      "from": 696,
+      "to": 1060,
+      "type": "backend"
+    },
+    {
+      "participant": "db",
+      "from": 740,
+      "to": 984,
+      "type": "database"
+    },
+    {
+      "participant": "s3",
+      "from": 894,
+      "to": 906,
+      "type": "cloud"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Two idempotency layers",
+      "items": [
+        "A duplicate click stops at the API: same key + same body replays the stored 201.",
+        "A duplicate SQS delivery stops at the worker: the attempt row already succeeded or holds a live lease."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Crash between receipt and commit",
+      "items": [
+        "The lease expires, a later delivery reclaims the event, the receipt PUT is idempotent, and the ledger UNIQUE constraint prevents a double charge.",
+        "S3 and PostgreSQL are never made atomic; the lease is the recovery mechanism."
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "What the worker does not do",
+      "items": [
+        "It never recomputes fee or tax from current config; it validates the event's bill and writes it.",
+        "It never mutates the source row on failure; failed attempts stay visible for the admin runbook."
+      ]
+    }
+  ]
+}

@@ -250,6 +250,10 @@ docs/*
 !docs/openapi.yaml
 !docs/aws-production-setup-guide.md
 !docs/setup-test-guide.md
+!docs/architecture-revision.md
+!docs/SPEC.md
+!docs/sprint-plan.md
+!docs/test-plan.md
 
 # --- PulsePress: Terraform (keep .terraform.lock.hcl + *.tfvars.example tracked) ---
 **/.terraform/*
@@ -273,3 +277,9 @@ terraform.rc
 .agents
 .codegraph
 .codex
+
+# --- PulsePress: Archify design diagrams (keep candidates + rendered HTML; drop receipts/review runs) ---
+.archify/**/review-*/
+.archify/**/*.json
+!.archify/**/candidate.json
+.archify/**/*.txt
