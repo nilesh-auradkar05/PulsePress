@@ -238,6 +238,9 @@ __marimo__/
 # Developer-provided frontend design (Vite/Figma export). Kept on disk as a
 # design reference only; its design was ported into apps/web (Next.js).
 /frontend/
+.cursor
+.github
+.impeccable
 
 # --- PulsePress: frontend build/install outputs (apps/web) ---
 apps/web/node_modules/
@@ -246,7 +249,10 @@ apps/web/out/
 apps/web/next-env.d.ts
 apps/web/*.tsbuildinfo
 apps/api/alembic/
-docs/*
+docs/design/
+docs/design-md/
+docs/phase2.md
+
 !docs/openapi.yaml
 !docs/aws-production-setup-guide.md
 !docs/setup-test-guide.md
